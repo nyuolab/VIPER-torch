@@ -102,7 +102,7 @@ class Dreamer(nn.Module):
                 self._logger.write(fps=True)
                 
         if not (self._step % 1000):
-            self._config.expl_amount = max(self._config.expl_amount*0.9997, 0.05)
+            self._config.expl_amount = max(self._config.expl_amount*self._config.expl_decay_rate, self._config.expl_min)
             print("The current exploration epsilon is {}".format(self._config.expl_amount))
             self._logger.scalar("epsilon", float(self._config.expl_amount))
         

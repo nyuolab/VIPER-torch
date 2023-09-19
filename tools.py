@@ -473,7 +473,7 @@ def simulate(
                 # print("The inventory variants are {}".format(cache[envs[i].id]["log_inventory/variant"]))
                 # print("The equipped variants are {}".format(cache[envs[i].id]["log_equipment/variant"]))
                 # record logs given from environments
-                variant_dict = {}
+                # variant_dict = {}
 
                 for key in list(cache[envs[i].id].keys()):
                     if "log_" in key:
@@ -481,13 +481,13 @@ def simulate(
                             key, float(np.array(cache[envs[i].id][key]).sum())
                             # key, list(cache[envs[i].id][key])
                         )
-                        variant_dict[key] = np.array(cache[envs[i].id][key]).flatten().tolist()
+                        # variant_dict[key] = np.array(cache[envs[i].id][key]).flatten().tolist()
                         # print("{}: {}".format(key, cache[envs[i].id][key]))
                         # log items won't be used later
                         cache[envs[i].id].pop(key)
                 
-                with open("logdir/minecraft_diamond/metrics.jsonl", "a") as f:
-                    json.dump(variant_dict, f)
+                # with open("logdir/minecraft_diamond/metrics.jsonl", "a") as f:
+                #     json.dump(variant_dict, f)
 
                 if not is_eval:
                     step_in_dataset = erase_over_episodes(cache, limit)

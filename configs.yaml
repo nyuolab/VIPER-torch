@@ -94,7 +94,7 @@ defaults:
   # Behavior.
   discount: 0.997
   discount_lambda: 0.95
-  imag_horizon: 20
+  imag_horizon: 15
   imag_gradient: 'dynamics'
   imag_gradient_mix: '0.0'
   imag_sample: True
@@ -105,7 +105,9 @@ defaults:
   actor_min_std: 0.1
   actor_max_std: 1.0
   actor_temp: 0.1
-  expl_amount: 0.35
+  expl_amount: 0.0
+  expl_decay_rate: 0.9997
+  expl_min: 0.0
   eval_state_mean: False
   collect_dyn_sample: True
   behavior_stop_grad: True
@@ -186,8 +188,11 @@ minecraft:
   eval_episode_num: 0
   eval_every: 1e4
   action_repeat: 1
+  imag_horizon: 20
   train_ratio: 16
   video_pred_log: false # true
+  expl_amount: 0.35
+  expl_min: 0.05
   # dyn_stoch: 64
   dyn_hidden: 1024
   dyn_deter: 4096

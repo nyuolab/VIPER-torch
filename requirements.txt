@@ -1,0 +1,36 @@
+setuptools
+tensorboard
+pandas
+matplotlib
+ruamel.yaml
+gym
+moviepy
+einops
+protobuf
+dm_control
+scipy
+memory_maze
+crafter
+opencv-python
+pyyaml
+jinja2
+lxml
+coloredlogs
+xmltodict
+Pyro4
+psutil
+multiprocess
+pytest
+daemoniker
+tqdm
+requests
+mypy-extensions
+jsonlines
+praw
+wget
+importlib_resources
+hydra-core
+Pillow
+# minerl==0.4.4
+# This was needed for minerl
+# conda install -c conda-forge openjdk=8

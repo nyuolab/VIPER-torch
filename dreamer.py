@@ -69,8 +69,11 @@ class Dreamer(nn.Module):
             plan2explore=lambda: expl.Plan2Explore(config, self._wm, reward),
         )[config.expl_behavior]().to(self._config.device)
 
+        # print(self._config.expl_amount)
+
     # real trajectory
     def __call__(self, obs, reset, state=None, training=True):
+        # print(self._config.expl_amount)
         step = self._step
         if self._should_reset(step):
             state = None
@@ -101,9 +104,9 @@ class Dreamer(nn.Module):
                     self._logger.video("train_openl", to_np(openl))
                 self._logger.write(fps=True)
                 
-        if not (self._step % 1000):
+        if self._step > (self._config.prefill * self._config.action_repeat) and not (self._step % 1000):
             self._config.expl_amount = max(self._config.expl_amount*self._config.expl_decay_rate, self._config.expl_min)
-            print("The current exploration epsilon is {}".format(self._config.expl_amount))
+            # print("The current exploration epsilon is {}".format(self._config.expl_amount))
             self._logger.scalar("epsilon", float(self._config.expl_amount))
         
         policy_output, state = self._policy(obs, state, training)
@@ -292,6 +295,7 @@ def main(config):
     tools.set_seed_everywhere(config.seed)
     if config.deterministic_run:
         tools.enable_deterministic_run()
+    # config.logdir += str(config.seed)
     logdir = pathlib.Path(config.logdir).expanduser()
     config.traindir = config.traindir or logdir / "train_eps"
     config.evaldir = config.evaldir or logdir / "eval_eps"
@@ -299,6 +303,9 @@ def main(config):
     config.eval_every //= config.action_repeat
     config.log_every //= config.action_repeat
     config.time_limit //= config.action_repeat
+
+    # print(config.expl_amount)
+    # print(config.expl_decay_rate)
 
     print("DDP Activation is {}!".format(config.ddp))
 
@@ -490,4 +497,5 @@ if __name__ == "__main__":
     for key, value in sorted(defaults.items(), key=lambda x: x[0]):
         arg_type = tools.args_type(value)
         parser.add_argument(f"--{key}", type=arg_type, default=arg_type(value))
+
     main(parser.parse_args(remaining))

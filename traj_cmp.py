@@ -33,12 +33,12 @@ def main(config):
     if config.deterministic_run:
         tools.enable_deterministic_run()
     logdir = pathlib.Path("experiments").expanduser()
+
     config.evaldir = config.evaldir or logdir / "eval_eps"
     # config.steps //= config.action_repeat
     config.eval_every //= config.action_repeat
     config.log_every //= config.action_repeat
     config.time_limit //= config.action_repeat
-    config.size = [256, 256]
 
     print("DDP Activation is {}!".format(config.ddp))
 
@@ -51,12 +51,13 @@ def main(config):
         # create model and move it to GPU with id rank
         config.device = rank % torch.cuda.device_count()
 
-
     print("Logdir", logdir) # logdir/env
     logdir.mkdir(parents=True, exist_ok=True)
     config.evaldir.mkdir(parents=True, exist_ok=True) # logdir/env/eval_eps
     # step = count_steps(config.traindir) # How many training steps by far
     # step in logger is environmental step
+    print(logdir)
+
     logger = tools.Logger(logdir, 0)
 
     print("Create envs.")
@@ -141,7 +142,7 @@ def main(config):
     agent.requires_grad_(requires_grad=False)
 
     # load saved world model weights
-    model_dir = logdir / "{}/latest_model.pt".format(config.task)
+    model_dir = pathlib.Path(config.logdir).expanduser() / "latest_model.pt"
     if (model_dir).exists():
         print("Load weights")
         agent.load_state_dict(torch.load(model_dir))

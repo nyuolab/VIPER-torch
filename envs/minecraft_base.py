@@ -43,8 +43,8 @@ class MinecraftBase(gym.Env):
             import minedojo
             self._env = minedojo.make(task_id=task, image_size=size, break_speed_multiplier=break_speed)
         
-        self.inv_exclude = ["inventory/name", "inventory/cur_durability", "inventory/max_durability"]
-        self.equip_exclude = ["equipment/name", "equipment/cur_durability", "equipment/max_durability"]
+        self.inv_exclude = ["inventory/name", "inventory/variant", "inventory/cur_durability", "inventory/max_durability"]
+        self.equip_exclude = ["equipment/name", "equipment/variant", "equipment/cur_durability", "equipment/max_durability"]
 
         self._inventory = {}
 
@@ -175,6 +175,7 @@ class MinecraftBase(gym.Env):
         obs["is_terminal"] = bool(info.get("is_terminal", done))
 
         obs = self._obs(obs)
+        # print(obs["inventory_names"])
         # self._step += 1
         assert "pov" not in obs, list(obs.keys())
         return obs, reward, done, info
@@ -206,7 +207,7 @@ class MinecraftBase(gym.Env):
         # print(obs.keys())
         # obs["inventory/log"] += obs.pop("inventory/log2")
         self._inventory = {
-            k.split("/", 1)[1]: obs[k] for k in self._inv_keys
+            k.split("/", 1)[1]: obs[k] for k in (self._inv_keys + ["inventory/name"])
         }
         # ValueError: setting an array element with a sequence. 
         # The requested array has an inhomogeneous shape after 1 dimensions. 
@@ -228,12 +229,16 @@ class MinecraftBase(gym.Env):
         # player_x = obs["location_stats/xpos"]
         # player_y = obs["location_stats/ypos"]
         # player_z = obs["location_stats/zpos"]
+        # print(obs["inventory/name"])
+        # print(obs["inventory/id"])
+
         obs = {
             "image": obs["rgb"],
-
+            # "inventory_name": obs["inventory/name"],
             "inventory": inventory.reshape(-1),
             "inventory_max": self._max_inventory.copy().reshape(-1),
             
+            # "equipment_name": obs["equipment/name"],
             "equipped": equipped.reshape(-1),
 
             "block_meta": np.float32(obs["voxels/block_meta"]).reshape(-1),

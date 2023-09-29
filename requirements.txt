@@ -9,6 +9,7 @@ einops
 protobuf
 dm_control
 scipy
+easydict
 memory_maze
 crafter
 opencv-python
@@ -31,6 +32,12 @@ wget
 importlib_resources
 hydra-core
 Pillow
+DI-toolkit
+DI-treetensor
+flask
+urlobject
+tabulate
+tensorboardX
 # minerl==0.4.4
 # This was needed for minerl
 # conda install -c conda-forge openjdk=8

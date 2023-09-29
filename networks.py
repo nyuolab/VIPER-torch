@@ -135,6 +135,7 @@ class RSSM(nn.Module):
                 requires_grad=True,
             )
 
+
     def initial(self, batch_size):
         deter = torch.zeros(batch_size, self._deter).to(self._device)
         if self._discrete:

@@ -152,6 +152,9 @@ crafter:
   envs: 1
   train_ratio: 512
   video_pred_log: true
+  expl_amount: 0.492
+  expl_decay_rate: 0.996
+  expl_min: 0.05
   dyn_hidden: 1024
   dyn_deter: 4096
   units: 1024
@@ -191,7 +194,8 @@ minecraft:
   imag_horizon: 20
   train_ratio: 16
   video_pred_log: false # true
-  expl_amount: 0.35
+  expl_amount: 0.24
+  expl_decay_rate: 0.9997
   expl_min: 0.05
   # dyn_stoch: 64
   dyn_hidden: 1024

@@ -20,6 +20,7 @@ defaults:
   debug: False
   expl_gifs: False
   video_pred_log: True
+  curiosity: 'na'
 
   # Environment
   task: 'dmc_walker_walk'

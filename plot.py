@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 import ast
+import math
 
 import argparse
 
@@ -25,6 +26,9 @@ if __name__ == "__main__":
     methods = ["vanilla", "0.05-greedy", "0.5-0.05 decay"]
     seeds = ["", "1", "2"]
 
+    rmin = 0
+    rmax = 0
+
     for k in range(len(seeds)):
         steps = []
         rewards = []
@@ -42,11 +46,14 @@ if __name__ == "__main__":
                 if return_mode in d:
                     rewards.append(d[return_mode])
                     steps.append(d["step"])
+                    rmin = min(rmin, d[return_mode])
+                    rmax = max(rmax, d[return_mode])
 
         plt.plot(steps, rewards, '-o', markersize=5, label="seed{0} {1}".format(seeds[k], methods[k]))
 
 
     plt.grid(True)
+    plt.yticks(np.arange(math.floor(rmin-1), math.ceil(rmax+1), 1.0))
     plt.xlabel('Step', fontsize = 15)
     plt.ylabel('Rewards', fontsize = 15)
     plt.legend(loc='lower right', bbox_to_anchor=(0.5, 0., 0.5, 0.5))

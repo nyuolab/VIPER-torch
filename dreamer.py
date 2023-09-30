@@ -295,7 +295,7 @@ def main(config):
     tools.set_seed_everywhere(config.seed)
     if config.deterministic_run:
         tools.enable_deterministic_run()
-    # config.logdir += str(config.seed)
+    config.logdir += str(config.seed)
     logdir = pathlib.Path(config.logdir).expanduser()
     config.traindir = config.traindir or logdir / "train_eps"
     config.evaldir = config.evaldir or logdir / "eval_eps"

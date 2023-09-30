@@ -124,42 +124,43 @@ class WorldModel(nn.Module):
         self._scales = dict(reward=config.reward_scale, cont=config.cont_scale)
 
         #RND network
-        self.rnd_cfg = dict(
-                            obs_shape=config.dyn_stoch+config.dyn_deter,
-                            # (str) Reward model register name, refer to registry ``REWARD_MODEL_REGISTRY``.
-                            type='rnd',
-                            # (str) The intrinsic reward type, including add, new, or assign.
-                            intrinsic_reward_type='add',
-                            # (float) The step size of gradient descent.
-                            learning_rate=1e-3,
-                            # (float) Batch size.
-                            batch_size=128,
-                            # (list(int)) Sequence of ``hidden_size`` of reward network.
-                            # If obs.shape == 1,  use MLP layers.
-                            # If obs.shape == 3,  use conv layer and final dense layer.
-                            hidden_size_list=[64, 64, 128],
-                            # (int) How many updates(iterations) to train after collector's one collection.
-                            # Bigger "update_per_collect" means bigger off-policy.
-                            # collect data -> update policy-> collect data -> ...
-                            update_per_collect=100,
-                            # (bool) Observation normalization: transform obs to mean 0, std 1.
-                            obs_norm=True,
-                            # (int) Min clip value for observation normalization.
-                            obs_norm_clamp_min=-1,
-                            # (int) Max clip value for observation normalization.
-                            obs_norm_clamp_max=1,
-                            # Means the relative weight of RND intrinsic_reward.
-                            # (float) The weight of intrinsic reward
-                            # r = intrinsic_reward_weight * r_i + r_e.
-                            intrinsic_reward_weight=0.01,
-                            # (bool) Whether to normlize extrinsic reward.
-                            # Normalize the reward to [0, extrinsic_reward_norm_max].
-                            extrinsic_reward_norm=True,
-                            # (int) The upper bound of the reward normalization.
-                            extrinsic_reward_norm_max=1,
-                        )
-        # self.rnd_model = RndRewardModel(self.rnd_cfg, self._device)
-        # self.rnd_model.apply(tools.weight_init)
+        if self._config.curiosity == 'rnd':
+            self.rnd_cfg = dict(
+                                obs_shape=config.dyn_hidden+config.dyn_deter,
+                                # (str) Reward model register name, refer to registry ``REWARD_MODEL_REGISTRY``.
+                                type='rnd',
+                                # (str) The intrinsic reward type, including add, new, or assign.
+                                intrinsic_reward_type='add',
+                                # (float) The step size of gradient descent.
+                                learning_rate=1e-3,
+                                # (float) Batch size.
+                                batch_size=64,
+                                # (list(int)) Sequence of ``hidden_size`` of reward network.
+                                # If obs.shape == 1,  use MLP layers.
+                                # If obs.shape == 3,  use conv layer and final dense layer.
+                                hidden_size_list=[64, 64, 128],
+                                # (int) How many updates(iterations) to train after collector's one collection.
+                                # Bigger "update_per_collect" means bigger off-policy.
+                                # collect data -> update policy-> collect data -> ...
+                                update_per_collect=1,
+                                # (bool) Observation normalization: transform obs to mean 0, std 1.
+                                obs_norm=True,
+                                # (int) Min clip value for observation normalization.
+                                obs_norm_clamp_min=-1,
+                                # (int) Max clip value for observation normalization.
+                                obs_norm_clamp_max=1,
+                                # Means the relative weight of RND intrinsic_reward.
+                                # (float) The weight of intrinsic reward
+                                # r = intrinsic_reward_weight * r_i + r_e.
+                                intrinsic_reward_weight=0.01,
+                                # (bool) Whether to normlize extrinsic reward.
+                                # Normalize the reward to [0, extrinsic_reward_norm_max].
+                                extrinsic_reward_norm=True,
+                                # (int) The upper bound of the reward normalization.
+                                extrinsic_reward_norm_max=1,
+                            )
+            self.rnd_model = RndRewardModel(self.rnd_cfg, self._config.device)
+            self.rnd_model.reward_model.apply(tools.weight_init)
 
     def _train(self, data):
         # action (batch_size, batch_length, act_dim)
@@ -366,19 +367,26 @@ class ImagBehavior(nn.Module):
                     start, self.actor, self._config.imag_horizon, repeats
                 )
 
-                # self._world_model.rnd_model.collect_data(imag_feat)
-                # rnd_loss = self._world_model.rnd_model._train()
-                # rnd_reward = self._world_model.rnd_model.estimate(imag_feat)
-                
-
                 if isinstance(self._config.num_actions, list):
                     imag_action = [imag_action[..., self._config.action_idxs[i]:self._config.action_idxs[i+1]]
                                    for i in range(self._config.action_dims)]
                     # print(torch.stack([torch.argmax(imag_action[i], axis=-1) for i in range(self._config.action_dims)], axis=-1).shape)
 
-                
                 reward = objective(imag_feat, imag_state, imag_action)
-                # reward += rnd_reward
+                
+                # print(imag_feat.reshape(-1, imag_feat.size(-1)).shape)
+
+                if self._config.curiosity == 'rnd':
+                    self._world_model.rnd_model.collect_data(imag_feat.reshape(-1, imag_feat.size(-1)).detach())
+                    
+                    rnd_loss = self._world_model.rnd_model.train()
+
+                    rnd_reward = self._world_model.rnd_model.estimate(imag_feat)
+                    metrics["rnd_loss"] = to_np(rnd_loss)
+                    metrics.update(tools.tensorstats(rnd_reward, "rnd_reward"))
+                    reward += rnd_reward
+
+                
                 policy = self.actor(imag_feat)
                 actor_ent = policy.entropy()
                 state_ent = self._world_model.dynamics.get_dist(imag_state).entropy()
@@ -459,7 +467,13 @@ class ImagBehavior(nn.Module):
             # actor and value loss backprop
             metrics.update(self._actor_opt(actor_loss, self.actor.parameters()))
             metrics.update(self._value_opt(value_loss, self.value.parameters()))
+            
+            self._world_model.rnd_model.opt.zero_grad()
+            rnd_loss.backward()
+            self._world_model.rnd_model.opt.step()
+
         return imag_feat, imag_state, imag_action, weights, metrics
+
 
     def _imagine(self, start, policy, horizon, repeats=None):
         dynamics = self._world_model.dynamics

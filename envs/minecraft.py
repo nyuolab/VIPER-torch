@@ -573,6 +573,8 @@ class Minecraft(gym.Wrapper):
         if obs["health"] <= 0.0:
             reward = -10
             print("WASTED!!!")
+            # done = True
+
         return obs, reward, done, info
 
     def reset(self):
@@ -626,7 +628,7 @@ class HealthReward:
 
     def __call__(self, obs, inventory=None):
         health = obs["health"]
-        if obs["is_first"]:
+        if obs["is_first"] or (not self.previous):
             self.previous = health
             return 0
         delta_health = health - self.previous

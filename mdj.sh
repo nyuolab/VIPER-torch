@@ -11,3 +11,10 @@ module load jdk/8u181
 # activate ~local~ conda environment
 conda activate /gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj
 export PYTHONPATH=/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages
+
+# create /tmp/$SLURM_JOB_ID directory .gradle symlink
+# mkdir -p /tmp/$SLURM_JOB_ID/.gradle
+# rm -f ~/.gradle
+# ln -s /tmp/$SLURM_JOB_ID/.gradle ~/.gradle
+
+export GRADLE_USER_HOME=/tmp/$SLURM_JOB_ID/.gradle

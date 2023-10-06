@@ -23,8 +23,9 @@ if __name__ == "__main__":
     return_mode = "{}_return".format(mode)
     plot_txt = 'plots/{0}_rewards.png'.format(env)
     
-    methods = ["vanilla", "0.05-greedy", "0.5-0.05 decay"]
-    seeds = ["", "1", "2"]
+    # methods = ["vanilla", "0.05-greedy", "0.5-0.05 decay"]
+    methods = ["inf_life", "inf_life_curiosity"]
+    seeds = ["0","1"]
 
     rmin = 0
     rmax = 0
@@ -53,7 +54,7 @@ if __name__ == "__main__":
 
 
     plt.grid(True)
-    plt.yticks(np.arange(math.floor(rmin-1), math.ceil(rmax+1), 1.0))
+    # plt.yticks(np.arange(math.floor(rmin-1), math.ceil(rmax+1), 1.0))
     plt.xlabel('Step', fontsize = 15)
     plt.ylabel('Rewards', fontsize = 15)
     plt.legend(loc='lower right', bbox_to_anchor=(0.5, 0., 0.5, 0.5))

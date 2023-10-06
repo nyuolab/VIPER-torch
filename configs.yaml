@@ -195,7 +195,7 @@ minecraft:
   imag_horizon: 20
   train_ratio: 16
   video_pred_log: false # true
-  expl_amount: 0.24
+  expl_amount: 0.2
   expl_decay_rate: 0.9997
   expl_min: 0.05
   # dyn_stoch: 64

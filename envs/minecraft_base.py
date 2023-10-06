@@ -177,6 +177,9 @@ class MinecraftBase(gym.Env):
         obs = self._obs(obs)
         # print(obs["inventory_names"])
         # self._step += 1
+        if obs["health"] <= 0.0:
+            done = True
+            
         assert "pov" not in obs, list(obs.keys())
         return obs, reward, done, info
 

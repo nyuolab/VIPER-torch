@@ -468,9 +468,10 @@ class ImagBehavior(nn.Module):
             metrics.update(self._actor_opt(actor_loss, self.actor.parameters()))
             metrics.update(self._value_opt(value_loss, self.value.parameters()))
             
-            self._world_model.rnd_model.opt.zero_grad()
-            rnd_loss.backward()
-            self._world_model.rnd_model.opt.step()
+            if self._config.curiosity == 'rnd':
+                self._world_model.rnd_model.opt.zero_grad()
+                rnd_loss.backward()
+                self._world_model.rnd_model.opt.step()
 
         return imag_feat, imag_state, imag_action, weights, metrics
 

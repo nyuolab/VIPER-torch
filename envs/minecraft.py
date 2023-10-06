@@ -558,6 +558,7 @@ class Minecraft(gym.Wrapper):
             "iron_pickaxe",
             "diamond",
         ]
+        
         self.other_rewards = [CollectReward(item, once=1) for item in self.items] + [HealthReward()]
 
 
@@ -603,18 +604,28 @@ class CollectReward:
     def __call__(self, obs, inventory):
         item_inv_idx = find_index(inventory["id"], self.item_id)
         current = inventory["quantity"][item_inv_idx] if item_inv_idx >= 0 else 0
+        
+        # if the useful item is found
         if item_inv_idx >= 0:
             print("The useful item name is {}".format(inventory["name"][item_inv_idx]))
             print("The useful item id is {}".format(inventory["id"][item_inv_idx]))
+            print("The useful item quantity is {}".format(inventory["quantity"][item_inv_idx]))
+        
         if obs["is_first"]:
             self.previous = current
             # self.maximum = current
             return 0
+        
         reward = self.repeated * max(0, current - self.previous)
         # if self.maximum == 0 and current > 0:
+
+        # if this item was not collected before
         if (current > self.previous) and (not self.previous):
             reward += self.once
+        
+        # if we lose the item
         elif (not current) and self.previous:
+            print("The item {} is lost!".format(self.item))
             reward -= self.once
         self.previous = current
         # self.maximum = max(self.maximum, current)
@@ -628,7 +639,9 @@ class HealthReward:
 
     def __call__(self, obs, inventory=None):
         health = obs["health"]
-        if obs["is_first"] or (not self.previous):
+
+        # env rest or just revived
+        if obs["is_first"] or (self.previous <= 0):
             self.previous = health
             return 0
         delta_health = health - self.previous

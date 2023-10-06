@@ -17,4 +17,4 @@ export PYTHONPATH=/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3
 # rm -f ~/.gradle
 # ln -s /tmp/$SLURM_JOB_ID/.gradle ~/.gradle
 
-export GRADLE_USER_HOME=/tmp/$SLURM_JOB_ID/.gradle
+export GRADLE_USER_HOME=/tmp/gd/$SLURM_JOB_ID/.gradle

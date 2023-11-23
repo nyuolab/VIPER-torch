@@ -23,9 +23,9 @@ if __name__ == "__main__":
     return_mode = "{}_return".format(mode)
     plot_txt = 'plots/{0}_rewards.png'.format(env)
     
-    # methods = ["vanilla", "0.05-greedy", "0.5-0.05 decay"]
-    methods = ["inf_life", "inf_life_curiosity"]
-    seeds = ["0","1"]
+    methods = ["vanilla", "0.05-greedy", "0.5-0.05 decay"]
+    # methods = ["inf_life", "inf_life_curiosity"]
+    seeds = ["","1","2"]
 
     rmin = 0
     rmax = 0

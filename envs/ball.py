@@ -6,41 +6,11 @@ import PIL.Image as Image
 import gym
 import random
 
-from gym import Env, spaces
+from gym import Env, spaces, wrappers
+from gym.wrappers.monitoring.video_recorder import VideoRecorder
 import time
 
 font = cv2.FONT_HERSHEY_COMPLEX_SMALL 
-
-# class Point(object):
-#     def __init__(self, name, x_max, x_min, y_max, y_min, grid_w):
-#         self.x = 0
-#         self.y = 0
-#         self.x_min = x_min
-#         self.x_max = x_max
-#         self.y_min = y_min
-#         self.y_max = y_max
-#         self.name = name
-#         self.grid_w = grid_w
-#         self.rad = self.grid_w//2
-    
-#     def set_position(self, x, y):
-#         self.x_center = x
-#         self.y_center = y
-    
-#     def get_position(self):
-#         return (self.x_center, self.y_center)
-    
-#     def move(self, new_xid, new_yid):
-#         self.x_center = new_xid*self.grid_w + self.rad
-#         self.y_center = new_yid*self.grid_w + self.rad
-
-#     # def clamp(self, n, minn, maxn):
-#     #     return max(min(maxn, n), minn)
-
-# class Ball(Point):
-#     def __init__(self, name, x_max, x_min, y_max, y_min, grid_w):
-#         super(Ball, self).__init__(name, x_max, x_min, y_max, y_min, grid_w)
-#         cv2.circle(img, center, radius, color, -1)
 
 def translate_points(points, translation_vector):
     return points - translation_vector
@@ -89,7 +59,8 @@ def generate_random_poly_segment(x_range, y_range, degree=5, num_points=256):
     
     return polynomial_segment
 
-
+def video_callable(episode_id):
+    return not (episode_id % 1)
 
 class BallEnv(Env):
     def __init__(self, shape=(64, 64, 3), grid_w=4):
@@ -117,20 +88,21 @@ class BallEnv(Env):
 
         self.green = (0, 255, 0)
         self.red = (0, 0, 255)
+        self.blue = (255, 0, 0)
         self.white = (255, 255, 255)
         self.black = (0, 0, 0)
     
     @property
     def observation_space(self):
-        spaces.Box(low = np.zeros(self.observation_shape), 
+        return spaces.Box(low = np.zeros(self.observation_shape), 
                     high = np.ones(self.observation_shape)*255,
-                    dtype = np.float16)
+                    dtype = np.float64)
 
     @property
     def action_space(self):
         return spaces.Box(low = np.zeros(2), 
                           high = np.array([self.xgrid, self.ygrid]),
-                          dtype = np.float16)
+                          dtype = np.float64)
 
     def draw_on_img(self, xid, yid):
         self.img = np.ones(self.observation_shape) * 1
@@ -204,6 +176,9 @@ class BallEnv(Env):
         # cv2.imwrite("../plots/ball_env.jpg", self.obs["image"])
 
         return self.obs
+    
+    def render(self, mode = "rgb_array"):
+        return self.obs["image"].astype("uint8")
 
     def step(self, action):
         # action = (x, y) coordinates
@@ -223,7 +198,7 @@ class BallEnv(Env):
         
 
         if flat_id in self.bc_cells:
-            color = (255,0,0)
+            color = self.blue
             # only first visit to a critical cell counts
             if not self.bc_cells[flat_id][1]:
                 self.path_cover += 1
@@ -233,12 +208,17 @@ class BallEnv(Env):
         else:
             reward = -1
 
-        
 
         obs = self.obs.copy()
 
         # whiten the previous ball
-        cv2.circle(obs["image"], (obs["pos"][1]*self.grid_w + self.rad, obs["pos"][0]*self.grid_w + self.rad), self.rad, self.white, -1)
+        pre_flat_id = self.ygrid*min(obs["pos"][1], self.ygrid-1) + min(obs["pos"][0], self.xgrid-1)
+        
+        if pre_flat_id in self.bc_cells:
+            fill = self.black
+        else:
+            fill = self.white
+        cv2.circle(obs["image"], (obs["pos"][1]*self.grid_w + self.rad, obs["pos"][0]*self.grid_w + self.rad), self.rad, fill, -1)
 
         obs["pos"] = [xid, yid]
         obs["is_first"] = False
@@ -246,34 +226,43 @@ class BallEnv(Env):
         obs["is_terminal"] = False
 
         done = False
-        info = "Ball moving..."
+        info = {"status":"Ball moving..."}
 
 
         cv2.circle(obs["image"], (yid*self.grid_w + self.rad, xid*self.grid_w + self.rad), self.rad, color, -1)
 
-        self.obs = obs
-        self.steps += 1
-
         if self.steps >= self.max_steps:
             done = True
-            info = "Max length reached :("
+            info["status"] = "Max length reached :("
         
         if self.path_cover >= self.num_cells:
             done = True
-            info = "Entire path covered :)"
+            info["status"] = "Entire path covered :)"
 
         if done:
             obs["is_last"] = True
             obs["is_terminal"] = True
+        
+        self.obs = obs
+        self.steps += 1
             
-        return self.obs, reward, done, info
+        return obs, reward, done, info
 
     def close(self):
         cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    env = BallEnv()
+    # Register the custom environment with Gym
+    env_name = 'BallEnv-v0'  # Replace 'CustomEnv' with your environment's name
+    gym.envs.register(id=env_name, entry_point='ball:BallEnv')
+    # env = BallEnv()
+    env = gym.make('BallEnv-v0')
+    video_dir = "../experiments/ball/ball_trial.mp4"
+    env = wrappers.Monitor(env, video_dir, force=True, video_callable=video_callable)
+
+    # env.metadata = {'render.modes': ['rgb_array'], 'video.frames_per_second': 30}
+
     obs = env.reset()
     done = False
     cv2.imwrite("../experiments/ball/step{}.jpg".format(env.steps), obs["image"])
@@ -283,6 +272,8 @@ if __name__ == "__main__":
         obs, reward, done, _ = env.step(action)
 
         cv2.imwrite("../experiments/ball/step{}.jpg".format(env.steps), obs["image"])
+    
+    env.close()
 
 
 

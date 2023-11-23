@@ -3,7 +3,7 @@ import threading
 
 import numpy as np
 import gym
-from . import minecraft_minerl
+from . import minecraft_minedojo
 
 def print_in_file(d):
     import json

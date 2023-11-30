@@ -28,7 +28,7 @@ to_np = lambda x: x.detach().cpu().numpy()
 
 
 class Dreamer(nn.Module):
-    def __init__(self, obs_space, act_space, config, logger, dataset):
+    def __init__(self, obs_space, act_space, config, logger, dataset, video_encoder=None, video_len=5):
         super(Dreamer, self).__init__()
         self._config = config
         self._logger = logger
@@ -42,6 +42,7 @@ class Dreamer(nn.Module):
         # this is update step
         self._step = logger.step // config.action_repeat
         self._update_count = 0
+        self.video_encoder = video_encoder
         # Schedules.
         config.actor_entropy = lambda x=config.actor_entropy: tools.schedule(
             x, self._step
@@ -109,6 +110,7 @@ class Dreamer(nn.Module):
             # print("The current exploration epsilon is {}".format(self._config.expl_amount))
             self._logger.scalar("epsilon", float(self._config.expl_amount))
         
+        
         policy_output, state = self._policy(obs, state, training)
 
         if training:
@@ -120,7 +122,10 @@ class Dreamer(nn.Module):
     def _policy(self, obs, state, training):
         # agent_state
         if state is None:
-            batch_size = len(obs["image"])
+            if video_encoder:
+                batch_size = len(obs["video"])
+            else:
+                batch_size = len(obs["image"])
             # print(batch_size)
             latent = self._wm.dynamics.initial(batch_size)
             if isinstance(self._config.num_actions, list):
@@ -128,13 +133,19 @@ class Dreamer(nn.Module):
                     self._config.device
                 )
             else:
-                action = torch.zeros((batch_size, self._config.num_actions)).to(
-                    self._config.device
-                )
+                if video_encoder:
+                    action = torch.zeros((batch_size, self._config.num_actions*video_len)).to(
+                        self._config.device
+                    )
+                else:
+                    action = torch.zeros((batch_size, self._config.num_actions)).to(
+                        self._config.device
+                    )
+
         else:
             # action from agent_state
             latent, action = state
-        obs = self._wm.preprocess(obs)
+        obs = self._wm.preprocess(obs, video_encoder=video_encoder)
         embed = self._wm.encoder(obs)
         
         latent, _ = self._wm.dynamics.obs_step(
@@ -161,15 +172,17 @@ class Dreamer(nn.Module):
                 # print(action[i].shape)
         else:
             action = action.detach()
-        if self._config.actor_dist == "onehot_gumble":
-            action = torch.one_hot(
-                torch.argmax(action, dim=-1), self._config.num_actions
-            )
+
+        # if self._config.actor_dist == "onehot_gumble":
+        #     action = torch.one_hot(
+        #         torch.argmax(action, dim=-1), self._config.num_actions
+        #     )
         action = self._exploration(action, training)
         # if isinstance(action, list):
         #     action = torch.cat(action, dim=-1)
         # from tensor to dictionary
         policy_output = {"action": action, "logprob": logprob}
+        
         if isinstance(action, list): 
             state = (latent, torch.cat(action, dim=-1))
         else:

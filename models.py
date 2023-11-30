@@ -222,12 +222,16 @@ class WorldModel(nn.Module):
         post = {k: v.detach() for k, v in post.items()}
         return post, context, metrics
 
-    def preprocess(self, obs, img_norm=True):
+
+    def preprocess(self, obs, img_norm=True, video_encoder=None):
         obs = obs.copy()
-        if img_norm:
-            obs["image"] = torch.Tensor(obs["image"]) / 255.0 - 0.5
+        if video:
+            obs["video"] = torch.Tensor(video_encoder(obs["video"]))
         else:
-            obs["image"] = torch.Tensor(obs["image"])
+            if img_norm:
+                obs["image"] = torch.Tensor(obs["image"]) / 255.0 - 0.5
+            else:
+                obs["image"] = torch.Tensor(obs["image"])
         # (batch_size, batch_length) -> (batch_size, batch_length, 1)
         # obs["reward"] = torch.Tensor(obs["reward"]).unsqueeze(-1)
         if "discount" in obs:
@@ -247,6 +251,7 @@ class WorldModel(nn.Module):
         obs["cont"] = torch.Tensor(1.0 - obs["is_terminal"]).unsqueeze(-1)
         obs = {k: torch.Tensor(v).to(self._config.device) for k, v in obs.items()}
         return obs
+    
 
     def video_pred(self, data):
         data = self.preprocess(data)

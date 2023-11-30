@@ -804,7 +804,8 @@ class ActionHead(nn.Module):
         outscale=1.0,
         unimix_ratio=0.01,
         out_layers=1,
-        action_space = None
+        action_space=None,
+        video_len=5
     ):
         super(ActionHead, self).__init__()
         self._size = size
@@ -818,6 +819,7 @@ class ActionHead(nn.Module):
         self._init_std = init_std
         self._unimix_ratio = unimix_ratio
         self._temp = temp() if callable(temp) else temp
+        self.video_len = video_len
 
         pre_layers = []
         for index in range(self._layers):
@@ -830,11 +832,11 @@ class ActionHead(nn.Module):
         self._pre_layers.apply(tools.weight_init)
 
         if self._dist in ["tanh_normal", "tanh_normal_5", "normal", "trunc_normal"]:
-            self._dist_layer = nn.Linear(self._units, 2 * self._size)
+            self._dist_layer = nn.Linear(self._units, 2 * self._size * video_len)
             self._dist_layer.apply(tools.uniform_weight_init(outscale))
 
         elif self._dist in ["normal_1", "onehot", "onehot_gumbel"]:
-            self._dist_layer = nn.Linear(self._units, self._size)
+            self._dist_layer = nn.Linear(self._units, self._size * video_len)
             self._dist_layer.apply(tools.uniform_weight_init(outscale))
         elif self._dist == "multionehot":
             self._dist_layer = []

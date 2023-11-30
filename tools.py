@@ -339,8 +339,10 @@ def eval_rollout(
 
 
 
+
 def simulate(
     agent,
+    random_agent,
     envs,
     cache, # trajectories/transitions
     directory, # config.traindir
@@ -350,8 +352,10 @@ def simulate(
     steps=0,
     episodes=0,
     state=None,
+    video_len=5
 ):
     # initialize or unpack simulation state
+    video_tracker = 0
     if state is None:
         step, episode = 0, 0
         done = np.ones(len(envs), bool)
@@ -362,13 +366,16 @@ def simulate(
     else:
         step, episode, done, length, obs, agent_state, reward = state
     
+    
     # print(envs[0].action_space.shape[0])
     # minecraft max time steps = 36000, steps = 10000
-
+    video_seg = []
+    
     while (steps and step < steps) or (episodes and episode < episodes):
         # reset all terminated envs
         if done.any():
             indices = [index for index, d in enumerate(done) if d] # indices of terminated envs
+            
             results = [envs[i].reset() for i in indices]
             # print(results)
             results = [r() for r in results]
@@ -383,16 +390,36 @@ def simulate(
                 add_to_cache(cache, envs[index].id, t)
                 # replace obs with done by initial state
                 obs[index] = result
-        # step agents
-        obs = {k: np.stack([o[k] for o in obs]) for k in obs[0]}
+                
+            obs = {k: np.stack([o[k] for o in obs]) for k in obs[0]}
+            
+            if video_len > 1:
+                video_seg = np.expand_dims(np.stack([obs["image"]] * 5), axis=0)
+                obs["video"] = video_seg
+                obs.pop("image")
+                action, agent_state = agent(video_seg, done, agent_state) # agent_state = (latent, action)
+                video_seg = []
+            else:
+                action, agent_state = agent(obs, done, agent_state)
 
-        # calls agent._policy(obs, state), where state = latent, action
-        # 
-        action, agent_state = agent(obs, done, agent_state) # agent_state = (latent, action)
+        else:
+            # step agents
+            obs = {k: np.stack([o[k] for o in obs]) for k in obs[0]}
+            # calls agent._policy(obs, state), where state = latent, action
+            if video_len > 1:
+                video_seg.append(obs["image"])
+                if not video_tracker:
+                    video_seg = np.expand_dims(np.stack(video_seg, axis=0), axis=0)
+                    obs.pop("image")
+                    obs["video"] = video_seg 
+                    action, agent_state = agent(obs, done, agent_state) # agent_state = (latent, action)
+                    video_seg = []
+            else:
+                action, agent_state = agent(obs, done, agent_state)
         # action: dict(action_dim_list(torch.tensor(len(envs) * one hot actions)))
         # action.keys() = [action, log_prob]
         # print(action)
-
+        
         # separate treatment for actions in minedojo
         if isinstance(envs[0].action_space, MultiDiscrete):
             # convert to index from onehot straightaway
@@ -460,7 +487,7 @@ def simulate(
         #     print("The inventory variants are {}".format(cache[envs[0].id]["log_inventory/variant"]))
         # if "log_equipment/variant" in cache[envs[0].id]:
         #     print("The equipped variants are {}".format(cache[envs[0].id]["log_equipment/variant"]))
-
+        
         if done.any():
             indices = [index for index, d in enumerate(done) if d]
             # logging for done episode
@@ -515,6 +542,10 @@ def simulate(
                         logger.scalar(f"eval_episodes", len(eval_scores))
                         logger.write(step=logger.step)
                         eval_done = True
+
+        video_tracker = (video_tracker+1)%video_len
+       
+
     if is_eval:
         # keep only last item for saving memory. this cache is used for video_pred later
         while len(cache) > 1:
@@ -723,6 +754,13 @@ def load_episodes(directory, limit=None, reverse=True):
                 break
     return episodes
 
+def tensor_seg_reshape(x, num_seg=5):
+    assert not (x.size(-1) % num_seg)
+    seg_len = x.size(-1)//num_seg
+    old_shape = x.size()
+    new_shape = list(old_shape[:-1]) + [num_seg, seg_len]
+    x = x.view(*new_shape)
+    return
 
 class SampleDist:
     def __init__(self, dist, samples=100):
@@ -751,21 +789,42 @@ class SampleDist:
         return -torch.mean(logprob, 0)
 
 
+
 class OneHotDist(torchd.one_hot_categorical.OneHotCategorical):
-    def __init__(self, logits=None, probs=None, unimix_ratio=0.0):
+    def __init__(self, logits=None, probs=None, unimix_ratio=0.0, num_seg=5):
+        self.num_seg = num_seg
+        self.orig_shape = None
         if logits is not None and unimix_ratio > 0.0:
+            self.orig_shape = logits.size()
+            self.new_shape = list(old_shape[:-1]) + [num_seg, logits.size(-1)//num_seg]
+
+            if num_seg > 1:
+                logits = tensor_seg_reshape(logits)
+                
             probs = F.softmax(logits, dim=-1)
             probs = probs * (1.0 - unimix_ratio) + unimix_ratio / probs.shape[-1]
             logits = torch.log(probs)
+
+            # if num_segments > 1:
+            #     logits = logits.view(*self.orig_shape)
+            
             super().__init__(logits=logits, probs=None)
         else:
-            super().__init__(logits=logits, probs=probs)
+            super().__init__(logits=logits, probs=probs) # input probs already reshaped w.r.t. separate actions in a sequence
 
     def mode(self):
+        if num_segments > 1:
+            logits = tensor_seg_reshape(super().logits)
+
         _mode = F.one_hot(
-            torch.argmax(super().logits, axis=-1), super().logits.shape[-1]
+            torch.argmax(logits, axis=-1), logits.shape[-1]
         )
-        return _mode.detach() + super().logits - super().logits.detach()
+
+        if num_segments > 1:
+            _mode = _mode.view(*self.orig_shape)
+            logits = logits.view(*self.orig_shape)
+
+        return _mode.detach() + logits - logits.detach()
 
     def sample(self, sample_shape=(), seed=None):
         if seed is not None:
@@ -775,7 +834,12 @@ class OneHotDist(torchd.one_hot_categorical.OneHotCategorical):
         while len(probs.shape) < len(sample.shape):
             probs = probs[None]
         sample += probs - probs.detach()
+        # if self.num_seg > 1:
+        #     sample.view(*self.orig_shape)
         return sample
+    
+    def log_prob(self):
+
 
 class MultiOneHotDist():
     def __init__(

@@ -37,6 +37,9 @@ class WorldModel(nn.Module):
         self._use_amp = True if config.precision == 16 else False
         self._config = config
         shapes = {k: tuple(v.shape) for k, v in obs_space.spaces.items()}
+        if config.video_len > 1:
+            shapes.pop("image")
+            shapes["video"] = (config.video_embed_dim,)
         # q(z|h,x)
         self.encoder = networks.MultiEncoder(shapes, config.device, **config.encoder)
         self.embed_size = self.encoder.outdim
@@ -61,6 +64,7 @@ class WorldModel(nn.Module):
             config.num_actions,
             self.embed_size,
             config.device,
+            config.video_len
         )
         self.heads = nn.ModuleDict()
         if config.dyn_discrete:
@@ -223,10 +227,10 @@ class WorldModel(nn.Module):
         return post, context, metrics
 
 
-    def preprocess(self, obs, img_norm=True, video_encoder=None):
+    def preprocess(self, obs, img_norm=True, video=True):
         obs = obs.copy()
         if video:
-            obs["video"] = torch.Tensor(video_encoder(obs["video"]))
+            obs["video"] = torch.Tensor(obs["video"])
         else:
             if img_norm:
                 obs["image"] = torch.Tensor(obs["image"]) / 255.0 - 0.5
@@ -372,6 +376,9 @@ class ImagBehavior(nn.Module):
                     start, self.actor, self._config.imag_horizon, repeats
                 )
 
+                if self._config.video_len > 1:
+                    imag_action = imag_action.reshape(-1, self._config.video_len, self._config.num_actions)
+
                 if isinstance(self._config.num_actions, list):
                     imag_action = [imag_action[..., self._config.action_idxs[i]:self._config.action_idxs[i+1]]
                                    for i in range(self._config.action_dims)]
@@ -409,9 +416,9 @@ class ImagBehavior(nn.Module):
                     # imag_feat, 
                     value,
                     imag_state, 
-                    imag_action, 
+                    imag_action, # flattened/cat action sequence
                     reward, 
-                    actor_ent, 
+                    actor_ent, # unflattened
                     state_ent
                 )
     
@@ -481,7 +488,7 @@ class ImagBehavior(nn.Module):
         return imag_feat, imag_state, imag_action, weights, metrics
 
 
-    def _imagine(self, start, policy, horizon, repeats=None):
+    def _imagine(self, start, actor, horizon, repeats=None):
         dynamics = self._world_model.dynamics
         if repeats:
             raise NotImplemented("repeats is not implemented in this version")
@@ -493,7 +500,7 @@ class ImagBehavior(nn.Module):
             feat = dynamics.get_feat(state)
             inp = feat.detach() if self._stop_grad_actor else feat
             # actionhead takes in z+h and outputs action
-            action = policy(inp).sample()
+            action = actor(inp).sample(flatten=True)
             if isinstance(action, list):
                 action = torch.cat(action, dim=-1)
             succ = dynamics.img_step(state, action, sample=self._config.imag_sample)
@@ -518,16 +525,18 @@ class ImagBehavior(nn.Module):
             discount = self._config.discount * self._world_model.heads["cont"](inp).mean
         else:
             discount = self._config.discount * torch.ones_like(reward)
-        if self._config.future_entropy and self._config.actor_entropy() > 0:
+        
+        # if self._config.future_entropy and self._config.actor_entropy > 0:    
+        #     for actor_ent in actor_ent_list:   
+        #         reward += self._config.actor_entropy * actor_ent
+        #     # Do I need to average?
+        #     reward /= len(actor_ent_list)
             
-            for i in range(self._config.action_dims):   
-                reward += self._config.actor_entropy() * actor_ent_list[i]
-            # Do I need to average?
-            reward /= len(actor_ent_list)
-            
-        if self._config.future_entropy and self._config.actor_state_entropy() > 0:
-            reward += self._config.actor_state_entropy() * state_ent
+        # if self._config.future_entropy and self._config.actor_state_entropy > 0:
+        #     reward += self._config.actor_state_entropy * state_ent
+
         # value = self.value(imag_feat).mode()
+        
         target = tools.lambda_return(
             reward[1:],
             value[:-1],
@@ -536,9 +545,11 @@ class ImagBehavior(nn.Module):
             lambda_=self._config.discount_lambda,
             axis=0,
         )
+
         weights = torch.cumprod(
             torch.cat([torch.ones_like(discount[:1]), discount[:-1]], 0), 0
         ).detach()
+
         return target, weights, value[:-1]
 
     def _compute_actor_loss(
@@ -619,18 +630,20 @@ class ImagBehavior(nn.Module):
                         # gpu mem boost
                         * (target - value[:-1]).detach()
                     )
-                mix = self._config.imag_gradient_mix()
+                mix = self._config.imag_gradient_mix
                 actor_target = mix * target + (1 - mix) * actor_target
                 metrics["imag_gradient_mix"] = mix
             else:
                 raise NotImplementedError(self._config.imag_gradient)
-            if not self._config.future_entropy and (self._config.actor_entropy() > 0):
-                actor_entropy = self._config.actor_entropy() * actor_ent[:-1][:, :, None]
+
+            if not self._config.future_entropy and (self._config.actor_entropy > 0):
+                actor_entropy = self._config.actor_entropy * actor_ent[:-1][:, :, None]
                 actor_target += actor_entropy
-            if not self._config.future_entropy and (self._config.actor_state_entropy() > 0):
-                state_entropy = self._config.actor_state_entropy() * state_ent[:-1]
+            if not self._config.future_entropy and (self._config.actor_state_entropy > 0):
+                state_entropy = self._config.actor_state_entropy * state_ent[:-1]
                 actor_target += state_entropy
                 metrics["actor_state_entropy"] = to_np(torch.mean(state_entropy))
+
             actor_loss = -torch.mean(weights[:-1] * actor_target)
             actor_loss_list.append(actor_loss)
 

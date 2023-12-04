@@ -22,13 +22,14 @@ from torch import nn
 from torch import distributions as torchd
 
 from gym.spaces import MultiDiscrete
+from vmae_encoder import VMAEEncoder
 
 
 to_np = lambda x: x.detach().cpu().numpy()
 
 
 class Dreamer(nn.Module):
-    def __init__(self, obs_space, act_space, config, logger, dataset, video_encoder=None, video_len=5):
+    def __init__(self, obs_space, act_space, config, logger, dataset, video_encoder=None):
         super(Dreamer, self).__init__()
         self._config = config
         self._logger = logger
@@ -43,16 +44,6 @@ class Dreamer(nn.Module):
         self._step = logger.step // config.action_repeat
         self._update_count = 0
         self.video_encoder = video_encoder
-        # Schedules.
-        config.actor_entropy = lambda x=config.actor_entropy: tools.schedule(
-            x, self._step
-        )
-        config.actor_state_entropy = (
-            lambda x=config.actor_state_entropy: tools.schedule(x, self._step)
-        )
-        config.imag_gradient_mix = lambda x=config.imag_gradient_mix: tools.schedule(
-            x, self._step
-        )
         self._dataset = dataset
         self._wm = models.WorldModel(obs_space, act_space, self._step, config)
         self._task_behavior = models.ImagBehavior(
@@ -122,7 +113,7 @@ class Dreamer(nn.Module):
     def _policy(self, obs, state, training):
         # agent_state
         if state is None:
-            if video_encoder:
+            if self._config.video_len > 1:
                 batch_size = len(obs["video"])
             else:
                 batch_size = len(obs["image"])
@@ -133,8 +124,8 @@ class Dreamer(nn.Module):
                     self._config.device
                 )
             else:
-                if video_encoder:
-                    action = torch.zeros((batch_size, self._config.num_actions*video_len)).to(
+                if self._config.video_len > 1:
+                    action = torch.zeros((batch_size, self._config.video_len, self._config.num_actions)).to(
                         self._config.device
                     )
                 else:
@@ -145,7 +136,7 @@ class Dreamer(nn.Module):
         else:
             # action from agent_state
             latent, action = state
-        obs = self._wm.preprocess(obs, video_encoder=video_encoder)
+        obs = self._wm.preprocess(obs, video=True)
         embed = self._wm.encoder(obs)
         
         latent, _ = self._wm.dynamics.obs_step(
@@ -216,7 +207,7 @@ class Dreamer(nn.Module):
             self._wm.dynamics.get_feat(s)
         ).mode()
         
-        metrics.update(self._task_behavior._train(start, reward)[-1]) #imagbehavior
+        metrics.update(self._task_behavior._train(start, reward)[-1]) # imagbehavior
         if self._config.expl_behavior != "greedy":
             mets = self._expl_behavior.train(start, context, data)[-1]
             metrics.update({"expl_" + key: value for key, value in mets.items()})
@@ -296,7 +287,7 @@ def make_env(config, mode):
     else:
         raise NotImplementedError(suite)
     env = wrappers.TimeLimit(env, config.time_limit)
-    env = wrappers.SelectAction(env, key="action")
+    env = wrappers.SelectAction(env, key="action") # action dict to action
     env = wrappers.UUID(env)
     if suite == "minecraft":
         env = wrappers.RewardObs(env)
@@ -380,6 +371,7 @@ def main(config):
     # print({k: tuple(v.shape) for k, v in train_envs[0].observation_space.spaces.items()})
 
     # print(acts)
+    video_encoder = VMAEEncoder()
     
     state = None
     if not config.offline_traindir:
@@ -407,10 +399,21 @@ def main(config):
                 1,
             )
 
-        def random_agent(o, d, s):
-            action = random_actor.sample()
-            logprob = random_actor.log_prob(action)
-            return {"action": action, "logprob": logprob}, None
+        class random_agent():
+            def __init__(self, video_encoder=None):
+                super(random_agent, self).__init__()
+                self.video_encoder = video_encoder
+            
+            def __call__(o, d, s):
+                action = random_actor.sample()
+                logprob = random_actor.log_prob(action)
+                return {"action": action, "logprob": logprob}, None
+
+        # def random_agent(o, d, s):
+        #     action = random_actor.sample()
+        #     logprob = random_actor.log_prob(action)
+        #     return {"action": action, "logprob": logprob}, None
+        random_agent = random_agent(video_encoder)
 
         state = tools.simulate(
             random_agent,
@@ -428,13 +431,15 @@ def main(config):
     print("Simulate agent.")
     train_dataset = make_dataset(train_eps, config)
     eval_dataset = make_dataset(eval_eps, config)
-    
+
+
     agent = Dreamer(
         train_envs[0].observation_space,
         train_envs[0].action_space,
         config,
         logger,
         train_dataset,
+        video_encoder=video_encoder
     ).to(config.device)
     agent.requires_grad_(requires_grad=False)
     if (logdir / "latest_model.pt").exists():

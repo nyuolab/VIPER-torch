@@ -34,6 +34,7 @@ class RSSM(nn.Module):
         num_actions=None,
         embed=None,
         device=None,
+        video_len=5,
     ):
         super(RSSM, self).__init__()
         self._stoch = stoch # z: stochastic state dim 
@@ -54,6 +55,7 @@ class RSSM(nn.Module):
         self._initial = initial
         self._embed = embed
         self._device = device
+        self.video_len = video_len
 
         if isinstance(num_actions, list):
             num_actions = int(sum(num_actions).item())
@@ -63,9 +65,9 @@ class RSSM(nn.Module):
 
         # Why not just self._stoch + num_actions? self._discrete is boolean
         if self._discrete:
-            inp_dim = self._stoch * self._discrete + num_actions
+            inp_dim = self._stoch * self._discrete + num_actions*video_len
         else:
-            inp_dim = self._stoch + num_actions
+            inp_dim = self._stoch + num_actions*video_len
 
         if self._shared:
             inp_dim += self._embed
@@ -167,7 +169,7 @@ class RSSM(nn.Module):
     def observe(self, embed, action, is_first, state=None, swap=True):
 
         if state is None:
-            state = self.initial(action.shape[0])
+            state = self.initial(action.shape[0]*video_len)
         
         # (batch, time, ch) -> (time, batch, ch)
         if swap:

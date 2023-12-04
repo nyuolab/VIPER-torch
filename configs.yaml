@@ -5,7 +5,7 @@ defaults:
   evaldir: null
   offline_traindir: ''
   offline_evaldir: ''
-  seed: 0
+  seed: 3
   deterministic_run: False
   steps: 1e8
   parallel: False
@@ -21,6 +21,8 @@ defaults:
   expl_gifs: False
   video_pred_log: True
   curiosity: 'na'
+  video_len: 5
+  video_embed_dim: 1408
 
   # Environment
   task: 'dmc_walker_walk'
@@ -97,10 +99,10 @@ defaults:
   discount_lambda: 0.95
   imag_horizon: 15
   imag_gradient: 'dynamics'
-  imag_gradient_mix: '0.0'
+  imag_gradient_mix: 0.0
   imag_sample: True
   actor_dist: 'normal'
-  actor_entropy: '3e-4'
+  actor_entropy: 3e-4
   actor_state_entropy: 0.0
   actor_init_std: 1.0
   actor_min_std: 0.1
@@ -152,7 +154,7 @@ crafter:
   action_repeat: 1
   envs: 1
   train_ratio: 512
-  video_pred_log: true
+  video_pred_log: false
   expl_amount: 0.492
   expl_decay_rate: 0.996
   expl_min: 0.05
@@ -163,8 +165,8 @@ crafter:
   cont_layers: 5
   value_layers: 5
   actor_layers: 5
-  encoder: {mlp_keys: '$^', cnn_keys: 'image', cnn_depth: 96, mlp_layers: 5, mlp_units: 1024}
-  decoder: {mlp_keys: '$^', cnn_keys: 'image', cnn_depth: 96, mlp_layers: 5, mlp_units: 1024}
+  encoder: {mlp_keys: 'video', cnn_keys: 'image', cnn_depth: 96, mlp_layers: 5, mlp_units: 2048} # 1024
+  decoder: {mlp_keys: 'video', cnn_keys: 'image', cnn_depth: 96, mlp_layers: 5, mlp_units: 2048} # 1024
   actor_dist: 'onehot'
   imag_gradient: 'reinforce'
 

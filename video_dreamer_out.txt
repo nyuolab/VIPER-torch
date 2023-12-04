@@ -1,0 +1,16 @@
+[12-02 22:30:34] WARNING  If you want to use numba to speed up segment tree, please install numba first                                              default_helper.py:441
+[12-02 22:30:34] WARNING  not found transformer, please install it using: pip install transformers                                               language_transformer.py:9
+The number of available gpus is 1
+DDP Activation is False!
+Logdir logdir/crafter_reward3
+Create envs.
+Discrete(17)
+Discrete(17)
+Traceback (most recent call last):
+  File "/gpfs/data/oermannlab/users/qp2040/dreamerv3/dreamer.py", line 519, in <module>
+    main(parser.parse_args(remaining))
+  File "/gpfs/data/oermannlab/users/qp2040/dreamerv3/dreamer.py", line 374, in main
+    video_encoder = VMAEEncoder()
+  File "/gpfs/data/oermannlab/users/qp2040/dreamerv3/vmae_encoder.py", line 70, in __init__
+    ckpt = torch.load(args.ckpt_path, map_location='cpu')
+NameError: name 'args' is not defined

@@ -207,7 +207,7 @@ def eval_rollout(
                 obs[index] = result
         
         # step agents
-        obs = {k: np.stack([o[k] for o in obs]) for k in obs[0]}
+        obs = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
 
         action, agent_state = agent(obs, done, agent_state, training=False)
         # type(action) = dict
@@ -307,7 +307,7 @@ def eval_rollout(
         # replace obs with done by initial state
         obs[index] = result
     # step agents
-    obs = {k: np.stack([o[k] for o in obs]) for k in obs[0]}
+    obs = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
 
     # Might be the reason for weird colors for fake imgs 
     obs = agent._wm.preprocess(obs)
@@ -342,7 +342,7 @@ def eval_rollout(
 
 def simulate(
     agent,
-    random_agent,
+    # random_agent,
     envs,
     cache, # trajectories/transitions
     directory, # config.traindir
@@ -352,10 +352,8 @@ def simulate(
     steps=0,
     episodes=0,
     state=None,
-    video_len=5
 ):
     # initialize or unpack simulation state
-    video_tracker = 0
     if state is None:
         step, episode = 0, 0
         done = np.ones(len(envs), bool)
@@ -363,13 +361,16 @@ def simulate(
         obs = [None] * len(envs)
         agent_state = None
         reward = [0] * len(envs)
+
     else:
         step, episode, done, length, obs, agent_state, reward = state
-    
+        
+
+    # if agent._config.video_len > 1:
+    #     video_seg = [[] for _ in range(len(envs))]
     
     # print(envs[0].action_space.shape[0])
     # minecraft max time steps = 36000, steps = 10000
-    video_seg = []
     
     while (steps and step < steps) or (episodes and episode < episodes):
         # reset all terminated envs
@@ -381,8 +382,13 @@ def simulate(
             results = [r() for r in results]
 
             for index, result in zip(indices, results):
+                video_seg = np.stack([result["image"]] * 5) # np.expand_dims(np.stack([obs["image"]] * 5), axis=0)
+                result["video"] = agent.video_encoder(video_seg).detach().cpu().numpy()
+                result.pop("image")
+
                 t = result.copy()
                 t = {k: convert(v) for k, v in t.items()}
+                
                 # action will be added to transition in add_to_cache
                 t["reward"] = 0.0
                 t["discount"] = 1.0
@@ -391,31 +397,10 @@ def simulate(
                 # replace obs with done by initial state
                 obs[index] = result
                 
-            obs = {k: np.stack([o[k] for o in obs]) for k in obs[0]}
-            
-            if video_len > 1:
-                video_seg = np.expand_dims(np.stack([obs["image"]] * 5), axis=0)
-                obs["video"] = video_seg
-                obs.pop("image")
-                action, agent_state = agent(video_seg, done, agent_state) # agent_state = (latent, action)
-                video_seg = []
-            else:
-                action, agent_state = agent(obs, done, agent_state)
+        obs = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
+        action, agent_state = agent(obs, done, agent_state)
 
-        else:
-            # step agents
-            obs = {k: np.stack([o[k] for o in obs]) for k in obs[0]}
-            # calls agent._policy(obs, state), where state = latent, action
-            if video_len > 1:
-                video_seg.append(obs["image"])
-                if not video_tracker:
-                    video_seg = np.expand_dims(np.stack(video_seg, axis=0), axis=0)
-                    obs.pop("image")
-                    obs["video"] = video_seg 
-                    action, agent_state = agent(obs, done, agent_state) # agent_state = (latent, action)
-                    video_seg = []
-            else:
-                action, agent_state = agent(obs, done, agent_state)
+        
         # action: dict(action_dim_list(torch.tensor(len(envs) * one hot actions)))
         # action.keys() = [action, log_prob]
         # print(action)
@@ -437,114 +422,263 @@ def simulate(
             else:
                 raise TypeError("Multidiscrete action has to use dictionary")
         else:
-            if isinstance(action, dict):
-                action = [
-                    {k: np.array(action[k][i].detach().cpu()) for k in action}
-                    for i in range(len(envs))
-                ]
+            if isinstance(action, dict):  
+                if agent._config.video_len > 1:
+                    # (num_envs, video_length, action_dim)
+                    action_seq = [
+                        [{k: np.array(action[k][i][j].detach().cpu()) for k in action} for j in range(agent._config.video_len)]
+                        for i in range(len(envs))
+                    ]
+                    action = [
+                        {k: np.array(action[k][i].flatten(start_dim=-2).detach().cpu()) for k in action}
+                        for i in range(len(envs))
+                    ]
+                else:
+                    action = [
+                        {k: np.array(action[k][i].detach().cpu()) for k in action}
+                        for i in range(len(envs))
+                    ]
             else:
                 action = np.array(action)
 
         # print(action)
 
         assert len(action) == len(envs)
+        
         # step envs
-        results = [e.step(a) for e, a in zip(envs, action)]
-        results = [r() for r in results]
-        obs, reward, done = zip(*[p[:3] for p in results])
-        obs = list(obs)
-        reward = list(reward)
-        done = np.stack(done)
-        episode += int(done.sum())
-        length += 1
-        step += len(envs)
-        length *= 1 - done
-        # add to cache
-        for a, result, env in zip(action, results, envs):
-            o, r, d, info = result
-            o = {k: convert(v) for k, v in o.items()}
-            transition = o.copy()
-            if isinstance(a, dict):
-                # separate treatment for actions in minedojo
-                if isinstance(envs[0].action_space, MultiDiscrete):
-                    for k in a.keys():
-                        assert len(a[k])
-                        if len(a[k][0].shape):    
-                            a[k] = np.concatenate(a[k], axis=-1)
-                        else:
-                            a[k] = np.mean(np.stack(a[k], axis=0))
-                transition.update(a)
-            else:
-                # separate treatment for actions in minedojo
-                if isinstance(envs[0].action_space, MultiDiscrete):
-                    a = np.concatenate(a, axis=-1)
-                transition["action"] = a
-            transition["reward"] = r
-            transition["discount"] = info.get("discount", np.array(1 - float(d)))
-            add_to_cache(cache, env.id, transition)
-        
-        # if "log_inventory/variant" in cache[envs[0].id]:
-        #     print("The inventory variants are {}".format(cache[envs[0].id]["log_inventory/variant"]))
-        # if "log_equipment/variant" in cache[envs[0].id]:
-        #     print("The equipped variants are {}".format(cache[envs[0].id]["log_equipment/variant"]))
-        
-        if done.any():
-            indices = [index for index, d in enumerate(done) if d]
-            # logging for done episode
-            for i in indices:
-                save_episodes(directory, {envs[i].id: cache[envs[i].id]})
-                length = len(cache[envs[i].id]["reward"]) - 1
-                score = float(np.array(cache[envs[i].id]["reward"]).sum())
-                video = cache[envs[i].id]["image"]
+        if agent._config.video_len > 1:
+            video_segs = [[] for _ in range(len(envs))]
+            reward = [0] * len(envs)
 
-                # print("The inventory variants are {}".format(cache[envs[i].id]["log_inventory/variant"]))
-                # print("The equipped variants are {}".format(cache[envs[i].id]["log_equipment/variant"]))
-                # record logs given from environments
-                # variant_dict = {}
-
-                for key in list(cache[envs[i].id].keys()):
-                    if "log_" in key:
-                        logger.scalar(
-                            key, float(np.array(cache[envs[i].id][key]).sum())
-                            # key, list(cache[envs[i].id][key])
-                        )
-                        # variant_dict[key] = np.array(cache[envs[i].id][key]).flatten().tolist()
-                        # print("{}: {}".format(key, cache[envs[i].id][key]))
-                        # log items won't be used later
-                        cache[envs[i].id].pop(key)
+            for j in range(agent._config.video_len):
+                results = []
+                for i in range(len(action_seq)):
+                    result = envs[i].step(action_seq[i][j])
+                    results.append(result())
                 
-                # with open("logdir/minecraft_diamond/metrics.jsonl", "a") as f:
-                #     json.dump(variant_dict, f)
+                frame_obs, frame_reward, done = zip(*[p[:3] for p in results])
 
-                if not is_eval:
-                    step_in_dataset = erase_over_episodes(cache, limit)
-                    logger.scalar(f"dataset_size", step_in_dataset)
-                    logger.scalar(f"train_return", score)
-                    logger.scalar(f"train_length", length)
-                    logger.scalar(f"train_episodes", len(cache))
-                    logger.write(step=logger.step)
+                frame_obs = list(frame_obs)
+                frame_reward = list(frame_reward)
+                done = np.stack(done)
+                episode += int(done.sum())
+                length += 1
+                step += len(envs)
+                length *= 1 - done
+                
+                # if "log_inventory/variant" in cache[envs[0].id]:
+                #     print("The inventory variants are {}".format(cache[envs[0].id]["log_inventory/variant"]))
+                # if "log_equipment/variant" in cache[envs[0].id]:
+                #     print("The equipped variants are {}".format(cache[envs[0].id]["log_equipment/variant"]))
+                # add to cache
+
+                for i in range(len(envs)):
+                    o, r, d, info = results[i]
+                    o = {k: convert(v) for k, v in o.items()}
+
+                    reward[i] += r
+                    video_segs[i].append(o["image"])
+
+                    # transition = o.copy()
+                    # if isinstance(a, dict):
+                    #     transition.update(a)
+                    # else:
+                    #     transition["action"] = a
+                    # transition["reward"] = r
+                    # transition["discount"] = info.get("discount", np.array(1 - float(d)))
+                    
+                    # add_to_cache(cache, env.id, transition)
+                    
+
+                # only works for one env so far
+                if done.any():
+                    indices = [index for index, d in enumerate(done) if d]
+                    # logging for done episode
+
+                    for i in indices:
+                        for _ in range(j+1, agent._config.video_len):
+                            video_segs[i].append(video_seg[i][-1].copy())
+                        
+                        o, r, d, info = results[i]
+                        o = {k: convert(v) for k, v in o.items()}
+                        transition = o.copy()
+                        transition["video"] = agent.video_encoder(np.stack(video_segs[i], axis=0)).detach().cpu().numpy()
+                        transition.pop("image")
+                        
+                        if isinstance(action[i], dict):
+                            transition.update(action[i])
+                        else:
+                            transition["action"] = action[i]
+                        transition["reward"] = reward[i]
+                        transition["discount"] = info.get("discount", np.array(1 - float(d)))
+                        add_to_cache(cache, env.id, transition)
+                    
+
+                        save_episodes(directory, {envs[i].id: cache[envs[i].id]})
+                        length = len(cache[envs[i].id]["reward"]) - 1
+                        score = float(np.array(cache[envs[i].id]["reward"]).sum())
+                        # video = cache[envs[i].id]["image"]
+
+                        # print("The inventory variants are {}".format(cache[envs[i].id]["log_inventory/variant"]))
+                        # print("The equipped variants are {}".format(cache[envs[i].id]["log_equipment/variant"]))
+                        # record logs given from environments
+                        # variant_dict = {}
+
+                        for key in list(cache[envs[i].id].keys()):
+                            if "log_" in key:
+                                logger.scalar(
+                                    key, float(np.array(cache[envs[i].id][key]).sum())
+                                    # key, list(cache[envs[i].id][key])
+                                )
+                                # variant_dict[key] = np.array(cache[envs[i].id][key]).flatten().tolist()
+                                # print("{}: {}".format(key, cache[envs[i].id][key]))
+                                # log items won't be used later
+                                cache[envs[i].id].pop(key)
+                        
+                        # with open("logdir/minecraft_diamond/metrics.jsonl", "a") as f:
+                        #     json.dump(variant_dict, f)
+
+                        if not is_eval:
+                            step_in_dataset = erase_over_episodes(cache, limit)
+                            logger.scalar(f"dataset_size", step_in_dataset)
+                            logger.scalar(f"train_return", score)
+                            logger.scalar(f"train_length", length)
+                            logger.scalar(f"train_episodes", len(cache))
+                            logger.write(step=logger.step)
+                        else:
+                            if not "eval_lengths" in locals():
+                                eval_lengths = []
+                                eval_scores = []
+                                eval_done = False
+                            # start counting scores for evaluation
+                            eval_scores.append(score)
+                            eval_lengths.append(length)
+
+                            score = sum(eval_scores) / len(eval_scores)
+                            length = sum(eval_lengths) / len(eval_lengths)
+                            # logger.video(f"eval_policy", np.array(video)[None])
+
+                            if len(eval_scores) >= episodes and not eval_done:
+                                logger.scalar(f"eval_return", score)
+                                logger.scalar(f"eval_length", length)
+                                logger.scalar(f"eval_episodes", len(eval_scores))
+                                logger.write(step=logger.step)
+                                eval_done = True
+
+            if not done.any(): 
+                for i in range(len(envs)):
+                    o, r, d, info = results[i]
+                    o = {k: convert(v) for k, v in o.items()}
+                    transition = o.copy()
+                    transition["video"] = agent.video_encoder(np.stack(video_segs[i], axis=0)).detach().cpu().numpy()
+                    transition.pop("image")
+                    
+                    if isinstance(action[i], dict):
+                        transition.update(action[i])
+                    else:
+                        transition["action"] = action[i]
+                    transition["reward"] = reward[i]
+                    transition["discount"] = info.get("discount", np.array(1 - float(d)))
+                    add_to_cache(cache, env.id, transition)
+
+
+        else:
+            results = [e.step(a) for e, a in zip(envs, action)]
+            results = [r() for r in results]
+            obs, reward, done = zip(*[p[:3] for p in results])
+            obs = list(obs)
+            reward = list(reward)
+            done = np.stack(done)
+            episode += int(done.sum())
+            length += 1
+            step += len(envs)
+            length *= 1 - done
+            # add to cache
+            for a, result, env in zip(action, results, envs):
+                o, r, d, info = result
+                o = {k: convert(v) for k, v in o.items()}
+                transition = o.copy()
+                if isinstance(a, dict):
+                    # separate treatment for actions in minedojo
+                    if isinstance(envs[0].action_space, MultiDiscrete):
+                        for k in a.keys():
+                            assert len(a[k])
+                            if len(a[k][0].shape):    
+                                a[k] = np.concatenate(a[k], axis=-1)
+                            else:
+                                a[k] = np.mean(np.stack(a[k], axis=0))
+                    transition.update(a)
                 else:
-                    if not "eval_lengths" in locals():
-                        eval_lengths = []
-                        eval_scores = []
-                        eval_done = False
-                    # start counting scores for evaluation
-                    eval_scores.append(score)
-                    eval_lengths.append(length)
+                    # separate treatment for actions in minedojo
+                    if isinstance(envs[0].action_space, MultiDiscrete):
+                        a = np.concatenate(a, axis=-1)
+                    transition["action"] = a
+                transition["reward"] = r
+                transition["discount"] = info.get("discount", np.array(1 - float(d)))
+                add_to_cache(cache, env.id, transition)
+                
+            
+            # if "log_inventory/variant" in cache[envs[0].id]:
+            #     print("The inventory variants are {}".format(cache[envs[0].id]["log_inventory/variant"]))
+            # if "log_equipment/variant" in cache[envs[0].id]:
+            #     print("The equipped variants are {}".format(cache[envs[0].id]["log_equipment/variant"]))
+        
+            if done.any():
+                indices = [index for index, d in enumerate(done) if d]
+                # logging for done episode
+                for i in indices:
+                    save_episodes(directory, {envs[i].id: cache[envs[i].id]})
+                    length = len(cache[envs[i].id]["reward"]) - 1
+                    score = float(np.array(cache[envs[i].id]["reward"]).sum())
+                    video = cache[envs[i].id]["image"]
 
-                    score = sum(eval_scores) / len(eval_scores)
-                    length = sum(eval_lengths) / len(eval_lengths)
-                    logger.video(f"eval_policy", np.array(video)[None])
+                    # print("The inventory variants are {}".format(cache[envs[i].id]["log_inventory/variant"]))
+                    # print("The equipped variants are {}".format(cache[envs[i].id]["log_equipment/variant"]))
+                    # record logs given from environments
+                    # variant_dict = {}
 
-                    if len(eval_scores) >= episodes and not eval_done:
-                        logger.scalar(f"eval_return", score)
-                        logger.scalar(f"eval_length", length)
-                        logger.scalar(f"eval_episodes", len(eval_scores))
+                    for key in list(cache[envs[i].id].keys()):
+                        if "log_" in key:
+                            logger.scalar(
+                                key, float(np.array(cache[envs[i].id][key]).sum())
+                                # key, list(cache[envs[i].id][key])
+                            )
+                            # variant_dict[key] = np.array(cache[envs[i].id][key]).flatten().tolist()
+                            # print("{}: {}".format(key, cache[envs[i].id][key]))
+                            # log items won't be used later
+                            cache[envs[i].id].pop(key)
+                    
+                    # with open("logdir/minecraft_diamond/metrics.jsonl", "a") as f:
+                    #     json.dump(variant_dict, f)
+
+                    if not is_eval:
+                        step_in_dataset = erase_over_episodes(cache, limit)
+                        logger.scalar(f"dataset_size", step_in_dataset)
+                        logger.scalar(f"train_return", score)
+                        logger.scalar(f"train_length", length)
+                        logger.scalar(f"train_episodes", len(cache))
                         logger.write(step=logger.step)
-                        eval_done = True
+                    else:
+                        if not "eval_lengths" in locals():
+                            eval_lengths = []
+                            eval_scores = []
+                            eval_done = False
+                        # start counting scores for evaluation
+                        eval_scores.append(score)
+                        eval_lengths.append(length)
 
-        video_tracker = (video_tracker+1)%video_len
-       
+                        score = sum(eval_scores) / len(eval_scores)
+                        length = sum(eval_lengths) / len(eval_lengths)
+                        logger.video(f"eval_policy", np.array(video)[None])
+
+                        if len(eval_scores) >= episodes and not eval_done:
+                            logger.scalar(f"eval_return", score)
+                            logger.scalar(f"eval_length", length)
+                            logger.scalar(f"eval_episodes", len(eval_scores))
+                            logger.write(step=logger.step)
+                            eval_done = True
+
+        
 
     if is_eval:
         # keep only last item for saving memory. this cache is used for video_pred later
@@ -820,13 +954,13 @@ class OneHotDist(torchd.one_hot_categorical.OneHotCategorical):
             torch.argmax(logits, axis=-1), logits.shape[-1]
         )
 
-        if num_segments > 1:
-            _mode = _mode.view(*self.orig_shape)
-            logits = logits.view(*self.orig_shape)
+        # if num_segments > 1:
+        #     _mode = _mode.view(*self.orig_shape)
+        #     logits = logits.view(*self.orig_shape)
 
         return _mode.detach() + logits - logits.detach()
 
-    def sample(self, sample_shape=(), seed=None):
+    def sample(self, sample_shape=(), seed=None, flatten=False):
         if seed is not None:
             raise ValueError("need to check")
         sample = super().sample(sample_shape)
@@ -835,10 +969,9 @@ class OneHotDist(torchd.one_hot_categorical.OneHotCategorical):
             probs = probs[None]
         sample += probs - probs.detach()
         # if self.num_seg > 1:
-        #     sample.view(*self.orig_shape)
+        if flatten:
+            sample = sample.view(*self.orig_shape)
         return sample
-    
-    def log_prob(self):
 
 
 class MultiOneHotDist():

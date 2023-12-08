@@ -375,9 +375,12 @@ class ImagBehavior(nn.Module):
                 imag_feat, imag_state, imag_action = self._imagine(
                     start, self.actor, self._config.imag_horizon, repeats
                 )
+                # print(imag_action.shape)
 
                 if self._config.video_len > 1:
-                    imag_action = imag_action.reshape(-1, self._config.video_len, self._config.num_actions)
+                    # imag_action = imag_action.reshape(-1, self._config.video_len, self._config.num_actions)
+                    imag_action = imag_action.reshape(imag_action.shape[:-1] + (self._config.video_len, self._config.num_actions))
+                    # print(imag_action.shape)
 
                 if isinstance(self._config.num_actions, list):
                     imag_action = [imag_action[..., self._config.action_idxs[i]:self._config.action_idxs[i+1]]
@@ -434,6 +437,8 @@ class ImagBehavior(nn.Module):
                     weights,
                     base,
                 )
+                # print(actor_loss)
+
                 metrics.update(mets)
                 value_input = imag_feat
 
@@ -503,6 +508,7 @@ class ImagBehavior(nn.Module):
             action = actor(inp).sample(flatten=True)
             if isinstance(action, list):
                 action = torch.cat(action, dim=-1)
+            # print(action.shape)f
             succ = dynamics.img_step(state, action, sample=self._config.imag_sample)
             return succ, feat, action
 
@@ -568,6 +574,7 @@ class ImagBehavior(nn.Module):
     ):
         metrics = {}
         inp = imag_feat.detach() if self._stop_grad_actor else imag_feat
+        # print(inp.shape)
         policy = self.actor(inp)
         # actor_ent = policy.entropy()
         # gpu mem boost
@@ -606,13 +613,24 @@ class ImagBehavior(nn.Module):
                         * (target - value[:-1]).detach()
                     )
                 else:
-                    actor_target = (
-                        # policy_logprob
-                        policy.log_prob(imag_action)[:-1][:, :, None]
-                        # * (target - self.value(imag_feat[:-1]).mode()).detach()
-                        # gpu mem boost
-                        * (target - value[:-1]).detach()
-                    )
+                    # print(imag_action.shape)
+                    # print(policy.log_prob(imag_action).shape)
+                    if self._config.video_len > 1:
+                        actor_target = (
+                            # policy_logprob
+                            policy.log_prob(imag_action)[:-1]
+                            # * (target - self.value(imag_feat[:-1]).mode()).detach()
+                            # gpu mem boost
+                            * (target - value[:-1]).detach()
+                        )
+                    else:
+                        actor_target = (
+                            # policy_logprob
+                            policy.log_prob(imag_action)[:-1][:, :, None]
+                            # * (target - self.value(imag_feat[:-1]).mode()).detach()
+                            # gpu mem boost
+                            * (target - value[:-1]).detach()
+                        )
             elif self._config.imag_gradient == "both":
                 if len(imag_action_list) > 1:    
                     actor_target = (
@@ -637,7 +655,12 @@ class ImagBehavior(nn.Module):
                 raise NotImplementedError(self._config.imag_gradient)
 
             if not self._config.future_entropy and (self._config.actor_entropy > 0):
-                actor_entropy = self._config.actor_entropy * actor_ent[:-1][:, :, None]
+                if self._config.video_len > 1:
+                    actor_entropy = self._config.actor_entropy * actor_ent[:-1]
+                else:    
+                    actor_entropy = self._config.actor_entropy * actor_ent[:-1][:, :, None]
+                # print(actor_target.shape)
+                # print(actor_entropy.shape)
                 actor_target += actor_entropy
             if not self._config.future_entropy and (self._config.actor_state_entropy > 0):
                 state_entropy = self._config.actor_state_entropy * state_ent[:-1]
@@ -649,7 +672,7 @@ class ImagBehavior(nn.Module):
 
             i += 1
 
-        print("The losses are {}".format(np.array([loss.detach().cpu().numpy() for loss in actor_loss_list])))
+        # print("The losses are {}".format(np.array([loss.detach().cpu().numpy() for loss in actor_loss_list])))
         # torch.sum(torch.stack(actor_loss_list))
         return sum(actor_loss_list), metrics
 

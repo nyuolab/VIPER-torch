@@ -5,6 +5,7 @@ import random
 
 import numpy as np
 import torch
+from torch import nn
 from timm.models import create_model
 from torchvision import transforms
 
@@ -50,15 +51,16 @@ class Resize(object):
         return resize(vid, self.size)
 
 
-class VMAEEncoder(object):
-    def __init__(self, model_name="vit_giant_patch14_224", num_frames=8, img_size=224, 
+class VMAEEncoder(nn.Module):
+    def __init__(self, model_name="vit_giant_patch14_224", num_frames=5, img_size=224, 
                 pretrained=False, num_classes=710, tubelet_size=2, 
                 drop_path_rate=0.1, use_mean_pooling=True, ckpt_path="logdir/vit_g_hybrid_pt_1200e_k710_ft.pth"):
-        transform = transforms.Compose(
+        super(VMAEEncoder, self).__init__()
+        self.transform = transforms.Compose(
                 [ToFloatTensorInZeroOne(),
                 Resize((img_size, img_size))])
         
-        model = create_model(
+        self.model = create_model(
         model_name,
         img_size=img_size,
         pretrained=pretrained,
@@ -67,28 +69,27 @@ class VMAEEncoder(object):
         tubelet_size=tubelet_size,
         drop_path_rate=drop_path_rate,
         use_mean_pooling=use_mean_pooling)
-        ckpt = torch.load(args.ckpt_path, map_location='cpu')
+        ckpt = torch.load(ckpt_path, map_location='cpu')
         for model_key in ['model', 'module']:
             if model_key in ckpt:
                 ckpt = ckpt[model_key]
                 break
-        model.load_state_dict(ckpt)
-        model.eval()
-        model.cuda()
-
-        super().__init__(name="videomae")
-
+        self.model.load_state_dict(ckpt)
+        self.model.eval()
+        self.model.cuda()
+        self.name = "videomae"
         self.outdim = 1408
 
     def forward(self, frames):
-        x = torch.from_numpy(frames)  
+        x = torch.from_numpy(frames)
+        # print(x.shape)
         frame_q = self.transform(x)  
         input_data = frame_q.unsqueeze(0).cuda()
 
         with torch.no_grad():
             features = self.model.forward_features(input_data)
 
-        return features.cpu().numpy()
+        return features.detach().cpu().numpy()
 
 
 

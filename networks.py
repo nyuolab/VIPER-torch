@@ -65,9 +65,9 @@ class RSSM(nn.Module):
 
         # Why not just self._stoch + num_actions? self._discrete is boolean
         if self._discrete:
-            inp_dim = self._stoch * self._discrete + num_actions*video_len
+            inp_dim = self._stoch * self._discrete + num_actions*self.video_len
         else:
-            inp_dim = self._stoch + num_actions*video_len
+            inp_dim = self._stoch + num_actions*self.video_len
 
         if self._shared:
             inp_dim += self._embed
@@ -169,7 +169,7 @@ class RSSM(nn.Module):
     def observe(self, embed, action, is_first, state=None, swap=True):
 
         if state is None:
-            state = self.initial(action.shape[0]*video_len)
+            state = self.initial(action.shape[0])
         
         # (batch, time, ch) -> (time, batch, ch)
         if swap:
@@ -213,8 +213,9 @@ class RSSM(nn.Module):
     def get_dist(self, state, dtype=None):
         if self._discrete:
             logit = state["logit"]
+            # print(logit.shape)
             dist = torchd.independent.Independent( 
-                tools.OneHotDist(logit, unimix_ratio=self._unimix_ratio), 1
+                tools.OneHotDist(logit, unimix_ratio=self._unimix_ratio, num_seg=1), 1
             )
         else:
             mean, std = state["mean"], state["std"]
@@ -237,6 +238,10 @@ class RSSM(nn.Module):
                     is_first,
                     is_first.shape + (1,) * (len(val.shape) - len(is_first.shape)),
                 )
+
+                # print(val.shape) # torch.Size([16, 32, 32])
+                # print(init_state[key].shape) # torch.Size([16, 32, 32])
+                # print(is_first.shape) # torch.Size([16, 1])
                 prev_state[key] = (
                     val * (1.0 - is_first_r) + init_state[key] * is_first_r
                 )

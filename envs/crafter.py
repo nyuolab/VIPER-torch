@@ -19,6 +19,7 @@ class Crafter:
             "image": gym.spaces.Box(
                 0, 255, self._env.observation_space.shape, dtype=np.uint8
             ),
+            # "video": gym.spaces.Box(-np.inf, np.inf, (1408,), dtype=np.float32),
             # "reward": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.float32),
             "is_first": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.int8),
             "is_last": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.int8),

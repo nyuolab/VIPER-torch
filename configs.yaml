@@ -27,13 +27,13 @@ defaults:
   # Environment
   task: 'dmc_walker_walk'
   # size: [96, 96]
-  size: [128, 128]
+  size: [224, 224]
   # size: [256, 256]
   envs: 1
   action_repeat: 2
   time_limit: 1000
   grayscale: False
-  prefill: 10000 # 2500
+  prefill: 100 # 10000 # 2500
   eval_noise: 0.0
   reward_EMA: True
 

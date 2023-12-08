@@ -354,6 +354,8 @@ def simulate(
     state=None,
 ):
     # initialize or unpack simulation state
+    video_encoder = agent.func.video_encoder if is_eval else agent.video_encoder
+    video_len = agent.func._config.video_len if is_eval else agent._config.video_len 
     if state is None:
         step, episode = 0, 0
         done = np.ones(len(envs), bool)
@@ -365,7 +367,6 @@ def simulate(
     else:
         step, episode, done, length, obs, agent_state, reward = state
         
-
     # if agent._config.video_len > 1:
     #     video_seg = [[] for _ in range(len(envs))]
     
@@ -380,10 +381,11 @@ def simulate(
             results = [envs[i].reset() for i in indices]
             # print(results)
             results = [r() for r in results]
-
+            
             for index, result in zip(indices, results):
-                video_seg = np.stack([result["image"]] * 5) # np.expand_dims(np.stack([obs["image"]] * 5), axis=0)
-                result["video"] = agent.video_encoder(video_seg).detach().cpu().numpy()
+                video_seg = np.stack([result["image"]] * video_len) # np.expand_dims(np.stack([obs["image"]] * 5), axis=0)
+                # print(video_seg.shape)
+                result["video"] = video_encoder(video_seg).flatten()
                 result.pop("image")
 
                 t = result.copy()
@@ -396,9 +398,9 @@ def simulate(
                 add_to_cache(cache, envs[index].id, t)
                 # replace obs with done by initial state
                 obs[index] = result
-                
-        obs = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
-        action, agent_state = agent(obs, done, agent_state)
+        
+        obs_dict = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
+        action, agent_state = agent(obs_dict, done, agent_state)
 
         
         # action: dict(action_dim_list(torch.tensor(len(envs) * one hot actions)))
@@ -423,19 +425,20 @@ def simulate(
                 raise TypeError("Multidiscrete action has to use dictionary")
         else:
             if isinstance(action, dict):  
-                if agent._config.video_len > 1:
+                if video_len > 1:
                     # (num_envs, video_length, action_dim)
                     action_seq = [
-                        [{k: np.array(action[k][i][j].detach().cpu()) for k in action} for j in range(agent._config.video_len)]
+                        [{k: action[k][i][j].detach().cpu().numpy() for k in action} for j in range(video_len)]
                         for i in range(len(envs))
                     ]
+                    # print(action["action"][0].shape)
                     action = [
-                        {k: np.array(action[k][i].flatten(start_dim=-2).detach().cpu()) for k in action}
+                        {k: action[k][i].flatten(start_dim=-2).detach().cpu().numpy() if len(action[k][i].shape) > 2 else action[k][i].view(-1).detach().cpu().numpy() for k in action}
                         for i in range(len(envs))
                     ]
                 else:
                     action = [
-                        {k: np.array(action[k][i].detach().cpu()) for k in action}
+                        {k: action[k][i].detach().cpu().numpy() for k in action}
                         for i in range(len(envs))
                     ]
             else:
@@ -446,11 +449,11 @@ def simulate(
         assert len(action) == len(envs)
         
         # step envs
-        if agent._config.video_len > 1:
+        if video_len > 1:
             video_segs = [[] for _ in range(len(envs))]
             reward = [0] * len(envs)
 
-            for j in range(agent._config.video_len):
+            for j in range(video_len):
                 results = []
                 for i in range(len(action_seq)):
                     result = envs[i].step(action_seq[i][j])
@@ -458,8 +461,8 @@ def simulate(
                 
                 frame_obs, frame_reward, done = zip(*[p[:3] for p in results])
 
-                frame_obs = list(frame_obs)
-                frame_reward = list(frame_reward)
+                # frame_obs = list(frame_obs)
+                # frame_reward = list(frame_reward)
                 done = np.stack(done)
                 episode += int(done.sum())
                 length += 1
@@ -496,13 +499,15 @@ def simulate(
                     # logging for done episode
 
                     for i in indices:
-                        for _ in range(j+1, agent._config.video_len):
-                            video_segs[i].append(video_seg[i][-1].copy())
+                        for _ in range(j+1, video_len):
+                            video_segs[i].append(video_segs[i][-1].copy())
                         
+
                         o, r, d, info = results[i]
-                        o = {k: convert(v) for k, v in o.items()}
+                        # o = {k: convert(v) for k, v in o.items()}
                         transition = o.copy()
-                        transition["video"] = agent.video_encoder(np.stack(video_segs[i], axis=0)).detach().cpu().numpy()
+                        transition = {k: convert(v) for k, v in transition.items()}
+                        transition["video"] = video_encoder(np.stack(video_segs[i], axis=0)).flatten()
                         transition.pop("image")
                         
                         if isinstance(action[i], dict):
@@ -511,9 +516,8 @@ def simulate(
                             transition["action"] = action[i]
                         transition["reward"] = reward[i]
                         transition["discount"] = info.get("discount", np.array(1 - float(d)))
-                        add_to_cache(cache, env.id, transition)
+                        add_to_cache(cache, envs[i].id, transition)
                     
-
                         save_episodes(directory, {envs[i].id: cache[envs[i].id]})
                         length = len(cache[envs[i].id]["reward"]) - 1
                         score = float(np.array(cache[envs[i].id]["reward"]).sum())
@@ -564,14 +568,26 @@ def simulate(
                                 logger.scalar(f"eval_episodes", len(eval_scores))
                                 logger.write(step=logger.step)
                                 eval_done = True
+                    
+                    # obs, reward, done = zip(*[p[:3] for p in results])
+                    # obs = list(obs)
+                    # obs[index] = result
+                    # print(obs[0].keys())
+                    # obs = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
 
-            if not done.any(): 
+                    break
+
+            # all envs not finished      
+            if not done.any():
                 for i in range(len(envs)):
                     o, r, d, info = results[i]
                     o = {k: convert(v) for k, v in o.items()}
+                    o["video"] = video_encoder(np.stack(video_segs[i], axis=0)).flatten()
+                    o.pop("image")
                     transition = o.copy()
-                    transition["video"] = agent.video_encoder(np.stack(video_segs[i], axis=0)).detach().cpu().numpy()
-                    transition.pop("image")
+                    # print(np.stack(video_segs[i]).shape)
+                    # print(transition["video"].shape)
+                    # transition.pop("image")
                     
                     if isinstance(action[i], dict):
                         transition.update(action[i])
@@ -579,7 +595,9 @@ def simulate(
                         transition["action"] = action[i]
                     transition["reward"] = reward[i]
                     transition["discount"] = info.get("discount", np.array(1 - float(d)))
-                    add_to_cache(cache, env.id, transition)
+                    add_to_cache(cache, envs[i].id, transition)
+
+                    obs[i] = o
 
 
         else:
@@ -842,6 +860,16 @@ def sample_episodes(episodes, length, seed=0):
                 # 'is_first' comes after 'is_last'
                 index = 0
                 possible = length - size
+                # ret_new = {}
+                # for k, v in episode.items():
+                #     if "log_" not in k:
+                #         print(k)
+                #         print(np.array(ret[k]).shape)
+                #         print(np.array(v[index : min(index + possible, total)]).shape)
+                #         ret_new[k] = np.append(
+                #             ret[k], v[index : min(index + possible, total)], axis=0
+                #         )
+                # ret = ret_new
                 ret = {
                     k: np.append(
                         ret[k], v[index : min(index + possible, total)], axis=0
@@ -893,8 +921,10 @@ def tensor_seg_reshape(x, num_seg=5):
     seg_len = x.size(-1)//num_seg
     old_shape = x.size()
     new_shape = list(old_shape[:-1]) + [num_seg, seg_len]
+    # print(new_shape)
+    
     x = x.view(*new_shape)
-    return
+    return x
 
 class SampleDist:
     def __init__(self, dist, samples=100):
@@ -928,27 +958,36 @@ class OneHotDist(torchd.one_hot_categorical.OneHotCategorical):
     def __init__(self, logits=None, probs=None, unimix_ratio=0.0, num_seg=5):
         self.num_seg = num_seg
         self.orig_shape = None
-        if logits is not None and unimix_ratio > 0.0:
+        self.new_shape = None
+        self.num_seg = num_seg
+        # print(logits.shape)
+        if logits is not None:
             self.orig_shape = logits.size()
-            self.new_shape = list(old_shape[:-1]) + [num_seg, logits.size(-1)//num_seg]
+            self.new_shape = list(self.orig_shape[:-1]) + [num_seg, logits.size(-1)//self.num_seg]
 
             if num_seg > 1:
-                logits = tensor_seg_reshape(logits)
-                
-            probs = F.softmax(logits, dim=-1)
-            probs = probs * (1.0 - unimix_ratio) + unimix_ratio / probs.shape[-1]
-            logits = torch.log(probs)
+                logits = tensor_seg_reshape(logits, num_seg=self.num_seg)
+            # print(logits.shape)
 
+            if unimix_ratio > 0.0:
+                probs = F.softmax(logits, dim=-1)
+                probs = probs * (1.0 - unimix_ratio) + unimix_ratio / probs.shape[-1]
+                logits = torch.log(probs)
+            
+            # print(logits.shape)
             # if num_segments > 1:
             #     logits = logits.view(*self.orig_shape)
-            
             super().__init__(logits=logits, probs=None)
         else:
             super().__init__(logits=logits, probs=probs) # input probs already reshaped w.r.t. separate actions in a sequence
 
     def mode(self):
-        if num_segments > 1:
-            logits = tensor_seg_reshape(super().logits)
+        # print(super().logits.shape)
+        # if self.num_seg > 1:
+        #     logits = tensor_seg_reshape(super().logits)
+        # else:
+        #    logits = super().logits
+        logits = super().logits
 
         _mode = F.one_hot(
             torch.argmax(logits, axis=-1), logits.shape[-1]
@@ -969,8 +1008,13 @@ class OneHotDist(torchd.one_hot_categorical.OneHotCategorical):
             probs = probs[None]
         sample += probs - probs.detach()
         # if self.num_seg > 1:
-        if flatten:
+        # print(sample.shape)
+        if flatten and self.num_seg > 1:
             sample = sample.view(*self.orig_shape)
+            # sample.flatten(start_dim=-2)
+        # if not flatten and self.new_shape and self.num_seg > 1:
+        #     sample = sample.view(*self.new_shape)
+            # print(sample.shape)
         return sample
 
 

@@ -83,6 +83,7 @@ class Dreamer(nn.Module):
                 else self._should_train(step)
             )
             for _ in range(steps):
+                # checkpoint
                 self._train(next(self._dataset))
                 self._update_count += 1
                 self._metrics["update_count"] = self._update_count
@@ -140,7 +141,7 @@ class Dreamer(nn.Module):
         embed = self._wm.encoder(obs)
         
         latent, _ = self._wm.dynamics.obs_step(
-            latent, action, embed, obs["is_first"], self._config.collect_dyn_sample
+            latent, action.flatten(start_dim=-2), embed, obs["is_first"], self._config.collect_dyn_sample
         )
         if self._config.eval_state_mean:
             latent["stoch"] = latent["mean"]
@@ -371,7 +372,7 @@ def main(config):
     # print({k: tuple(v.shape) for k, v in train_envs[0].observation_space.spaces.items()})
 
     # print(acts)
-    video_encoder = VMAEEncoder()
+    video_encoder = VMAEEncoder(num_frames=config.video_len)
     
     state = None
     if not config.offline_traindir:
@@ -388,7 +389,7 @@ def main(config):
 
         elif hasattr(acts, "discrete"):
             random_actor = tools.OneHotDist(
-                torch.zeros(config.num_actions).repeat(config.envs, 1)
+                torch.zeros(config.video_len*config.num_actions).repeat(config.envs, 1)
             )
         else:
             random_actor = torchd.independent.Independent(
@@ -399,13 +400,14 @@ def main(config):
                 1,
             )
 
-        class random_agent():
-            def __init__(self, video_encoder=None):
-                super(random_agent, self).__init__()
+        class RandomAgent(object):
+            def __init__(self, config, video_encoder=None):
+                super(RandomAgent, self).__init__()
                 self.video_encoder = video_encoder
+                self._config = config
             
-            def __call__(o, d, s):
-                action = random_actor.sample()
+            def __call__(self, o, d, state):
+                action = random_actor.sample(flatten=False)
                 logprob = random_actor.log_prob(action)
                 return {"action": action, "logprob": logprob}, None
 
@@ -413,7 +415,7 @@ def main(config):
         #     action = random_actor.sample()
         #     logprob = random_actor.log_prob(action)
         #     return {"action": action, "logprob": logprob}, None
-        random_agent = random_agent(video_encoder)
+        random_agent = RandomAgent(config, video_encoder)
 
         state = tools.simulate(
             random_agent,

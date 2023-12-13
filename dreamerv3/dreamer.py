@@ -22,14 +22,14 @@ from torch import nn
 from torch import distributions as torchd
 
 from gym.spaces import MultiDiscrete
-from vmae_encoder import VMAEEncoder
+# from vmae_encoder import VMAEEncoder
 
 
 to_np = lambda x: x.detach().cpu().numpy()
 
 
 class Dreamer(nn.Module):
-    def __init__(self, obs_space, act_space, config, logger, dataset, video_encoder=None):
+    def __init__(self, obs_space, act_space, config, logger, dataset): # , video_encoder=None):
         super(Dreamer, self).__init__()
         self._config = config
         self._logger = logger
@@ -43,7 +43,7 @@ class Dreamer(nn.Module):
         # this is update step
         self._step = logger.step // config.action_repeat
         self._update_count = 0
-        self.video_encoder = video_encoder
+        # self.video_encoder = video_encoder
         self._dataset = dataset
         self._wm = models.WorldModel(obs_space, act_space, self._step, config)
         self._task_behavior = models.ImagBehavior(
@@ -114,10 +114,10 @@ class Dreamer(nn.Module):
     def _policy(self, obs, state, training):
         # agent_state
         if state is None:
-            if self._config.video_len > 1:
-                batch_size = len(obs["video"])
-            else:
-                batch_size = len(obs["image"])
+            # if self._config.video_len > 1:
+            #     batch_size = len(obs["video"])
+            # else:
+            batch_size = len(obs["image"])
             # print(batch_size)
             latent = self._wm.dynamics.initial(batch_size)
             if isinstance(self._config.num_actions, list):
@@ -125,14 +125,14 @@ class Dreamer(nn.Module):
                     self._config.device
                 )
             else:
-                if self._config.video_len > 1:
-                    action = torch.zeros((batch_size, self._config.video_len, self._config.num_actions)).to(
-                        self._config.device
-                    )
-                else:
-                    action = torch.zeros((batch_size, self._config.num_actions)).to(
-                        self._config.device
-                    )
+                # if self._config.video_len > 1:
+                #     action = torch.zeros((batch_size, self._config.video_len, self._config.num_actions)).to(
+                #         self._config.device
+                #     )
+                # else:
+                action = torch.zeros((batch_size, self._config.num_actions)).to(
+                    self._config.device
+                )
 
         else:
             # action from agent_state
@@ -372,7 +372,8 @@ def main(config):
     # print({k: tuple(v.shape) for k, v in train_envs[0].observation_space.spaces.items()})
 
     # print(acts)
-    video_encoder = VMAEEncoder(num_frames=config.video_len)
+    # video_encoder = VMAEEncoder(num_frames=config.video_len)
+    video_encoder = None
     
     state = None
     if not config.offline_traindir:
@@ -388,8 +389,11 @@ def main(config):
             # print(random_actor.sample())
 
         elif hasattr(acts, "discrete"):
+            # random_actor = tools.OneHotDist(
+            #     torch.zeros(config.video_len*config.num_actions).repeat(config.envs, 1)
+            # )
             random_actor = tools.OneHotDist(
-                torch.zeros(config.video_len*config.num_actions).repeat(config.envs, 1)
+                torch.zeros(config.num_actions).repeat(config.envs, 1)
             )
         else:
             random_actor = torchd.independent.Independent(
@@ -401,9 +405,9 @@ def main(config):
             )
 
         class RandomAgent(object):
-            def __init__(self, config, video_encoder=None):
+            def __init__(self, config): # video_encoder=None):
                 super(RandomAgent, self).__init__()
-                self.video_encoder = video_encoder
+                # self.video_encoder = video_encoder
                 self._config = config
             
             def __call__(self, o, d, state):
@@ -415,7 +419,8 @@ def main(config):
         #     action = random_actor.sample()
         #     logprob = random_actor.log_prob(action)
         #     return {"action": action, "logprob": logprob}, None
-        random_agent = RandomAgent(config, video_encoder)
+        # random_agent = RandomAgent(config, video_encoder)
+        random_agent = RandomAgent(config)
 
         state = tools.simulate(
             random_agent,
@@ -441,7 +446,7 @@ def main(config):
         config,
         logger,
         train_dataset,
-        video_encoder=video_encoder
+        # video_encoder=video_encoder
     ).to(config.device)
     agent.requires_grad_(requires_grad=False)
     if (logdir / "latest_model.pt").exists():

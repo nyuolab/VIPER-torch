@@ -175,6 +175,7 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
         data_loader = prepare(
             dataset, batch_size,
             initial_shape=initial_shape,
+            num_device=N,
         )
         # dataset = ConcatDataset(datasets)
         # dataset = CombinedDataset(datasets, dataset_labels, batch_size, batch_per_dset)
@@ -183,7 +184,7 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
     return data_loader, class_map, mask_map
 
 
-def prepare(dataset, batch_size, initial_shape=None):
+def prepare(dataset, batch_size, initial_shape=None, num_devices=1):
     # Check if in DEBUG mode
     shuffle_size = batch_size if os.environ.get('DEBUG') == '1' else batch_size * 64
 
@@ -193,7 +194,7 @@ def prepare(dataset, batch_size, initial_shape=None):
         batch_size=batch_size, 
         shuffle=True, # Shuffling the dataset
         drop_last=True, # Dropping the last incomplete batch
-        num_workers=0, # os.cpu_count(), # Utilizing multiple CPU cores
+        num_workers=os.cpu_count() // num_devices, # os.cpu_count(), # Utilizing multiple CPU cores
         prefetch_factor=None, # Prefetching batches
         pin_memory=True,
         collate_fn=lambda x: custom_collate_fn(x, initial_shape)

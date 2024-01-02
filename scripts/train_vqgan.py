@@ -41,6 +41,8 @@ def main():
     
     global model
 
+    num_device = torch.cuda.device_count()
+
     # rng = jax.random.PRNGKey(config.seed)
     # rng, init_rng = jax.random.split(rng)
 
@@ -222,6 +224,7 @@ if __name__ == '__main__':
     args.run_id = args.output_dir.split('/')[-1] + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
     if torch.cuda.is_available():
+        print(f'Total CPUs: {os.cpu_count()}')
         print(f'Total CUDA devices: {torch.cuda.device_count()}')
         print(f'Current CUDA device index: {torch.cuda.current_device()}')
         print(f'Current CUDA device name: {torch.cuda.get_device_name(torch.cuda.current_device())}')

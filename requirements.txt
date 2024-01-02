@@ -5,6 +5,10 @@ matplotlib
 ruamel.yaml
 gym
 moviepy
+ffmpeg-python
+internetarchive
+ipdb
+lpips
 einops
 protobuf
 dm_control

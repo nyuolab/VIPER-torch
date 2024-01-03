@@ -51,7 +51,7 @@ def main():
     ckpt_dir = osp.join(config.output_dir, 'checkpoints')
 
     if is_master_process:
-        wandb.init(project='viper_rl', config=config,
+        wandb.init(project='vqgan', config=config,
                    id=config.run_id, resume='allow', mode='online')
         wandb.run.name = config.run_id
         wandb.run.save()
@@ -61,6 +61,7 @@ def main():
 
     if mask_map is not None:
         pickle.dump(mask_map, open(osp.join(config.output_dir, 'mask_map.pkl'), 'wb'))
+    
     
     batch = next(iter(train_loader))
     print(batch.keys())
@@ -119,7 +120,6 @@ def train_step(batch, state, device):
 
     # Generator update
     state.G_optimizer.zero_grad()
-    # progress
     loss_G, aux_G = state.model.loss_G(batch)
     loss_G.backward()  # Backpropagation to calculate gradients
     state.G_optimizer.step()  # Update VQGAN parameters using its optimizer

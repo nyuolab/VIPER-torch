@@ -1,5 +1,7 @@
 from functools import cached_property, partial
 import os.path as osp
+import glob
+import re
 import pickle
 import numpy as np
 import torch
@@ -9,6 +11,9 @@ from .videogpt import VideoGPT
 from .stylegan_disc import StyleGANDisc
 from .vqgan import VQGAN
 
+def extract_iteration(filename):
+    match = re.search(r"checkpoint_(\d+).pth", filename)
+    return int(match.group(1)) if match else 0
 
 def load_videogpt(path, replicate=True, ae=None):
     # Load configuration
@@ -40,12 +45,12 @@ def load_videogpt(path, replicate=True, ae=None):
 
     return model, class_map
 
-def load_vqgan(path):
+def load_vqgan(path, ae_config):
     # Load configuration
-    config = pickle.load(open(osp.join(path, 'args'), 'rb'))
+    # config = pickle.load(open(osp.join(path, 'args'), 'rb'))
     
     # Initialize the VQGAN model with the loaded configuration
-    model = VQGAN(**config.ae)  # Replace VQGAN with your PyTorch implementation
+    model = VQGAN(**ae_config)  # Replace VQGAN with your PyTorch implementation
 
     # Load mask map if exists
     mask_file = osp.join(path, 'mask_map.pkl')
@@ -56,17 +61,22 @@ def load_vqgan(path):
         mask_map = None
 
     # Load model checkpoint
-    checkpoint_path = osp.join(path, 'checkpoints')
-    if osp.exists(checkpoint_path):
-        model.load_state_dict(torch.load(checkpoint_path))
+    # checkpoint_path = osp.join(path, 'checkpoints')
+    # if osp.exists(checkpoint_path):
+    #     model.load_state_dict(torch.load(checkpoint_path))
+    model_files = glob.glob(f"{path}/checkpoints/*.pth")
+    if len(model_files):
+        checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
+        print(checkpoint_path)
+        model.load_state_dict(torch.load(checkpoint_path), strict=False)
 
     return model, mask_map
 
 
 class AE:
-    def __init__(self, path):
+    def __init__(self, path, ae_config):
         path = osp.expanduser(path)
-        self.ae, self.mask_map = load_vqgan(path)  # Assuming load_vqgan is adapted for PyTorch
+        self.ae, self.mask_map = load_vqgan(path, ae_config)  # Assuming load_vqgan is adapted for PyTorch
         # PyTorch doesn't have a direct equivalent of JAX's 'pmap' or 'jit' mode
 
     def latent_shape(self, image_size):
@@ -82,14 +92,19 @@ class AE:
 
     def encode(self, video):
         # Assuming the AE model has 'encode' method
-        encodings = self.ae.encode(video)
-        return encodings
+        T = video.shape[1]
+        video = video.reshape(-1, *video.shape[2:])
+        out = self.ae.encode(video)
+        encodings = out['encodings']
+        return encodings.reshape(-1, T, *encodings.shape[1:])
     
     def decode(self, encodings):
         # Assuming the AE model has 'decode' method
+        T = encodings.shape[1]
+        encodings = encodings.reshape(-1, *encodings.shape[2:])
         recon = self.ae.decode(encodings)
         recon = torch.clip(recon, -1, 1)
-        return recon
+        return recon.reshape(-1, T, *recon.shape[1:])
     
     def lookup(self, encodings):
         # Assuming the AE model has 'codebook_lookup' method

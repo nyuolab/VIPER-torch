@@ -39,6 +39,20 @@ class VideoToImageDataset(torch.utils.data.Dataset):
         frame = np.transpose(video[frame_idx], (2,0,1))
         return {'image': frame}
 
+class VideoDataset(torch.utils.data.Dataset):
+    def __init__(self, dataset):
+        self.dataset = dataset
+    
+    def __getitem__(self, idx):
+        video = self.dataset[idx]['video']
+        axis_order = tuple(range(video.ndim - 3)) + (video.ndim - 1, video.ndim - 3, video.ndim - 2)
+        video = np.transpose(video, axis_order)
+        return {'video': video}
+    
+    def __len__(self):
+        return len(self.dataset)
+    
+
 # class CombinedDataset(IterableDataset):
 #     def __init__(self, datasets, dataset_labels, batch_size, batch_per_dset):
 #         self.datasets = [iter(dataset) for dataset in datasets]  # Convert to iterators
@@ -73,20 +87,26 @@ class VideoToImageDataset(torch.utils.data.Dataset):
 #         return batched_data
 
 class LabelDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset, paths):
+    def __init__(self, dataset, paths, split):
         self.dataset = dataset
+        self.split = split
         self.labels = self.assign_labels(paths)
+        # print(len(self.labels))
 
     def assign_labels(self, paths):
         labels = []
         for idx, path in enumerate(paths):
-            num_items = len(path) # Assuming the dataset size can be inferred
+            folder = os.path.join(path, self.split, '*.npz')
+            fns = _glob_files(folder)
+            # print(path)
+            num_items = len(fns) # Assuming the dataset size can be inferred
             labels.extend([idx] * num_items)
         return labels
 
     def __getitem__(self, idx):
         data = self.dataset[idx]
         label = self.labels[idx]
+        # print(label)
         data['label'] = label
         return data
 
@@ -115,7 +135,9 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
         
         if modality == 'image':
             dataset = VideoToImageDataset(dataset)
-
+        else:
+            dataset = VideoDataset(dataset)
+        # print(len(dataset))
         return dataset
 
     def get_data_type(data_path):
@@ -133,11 +155,19 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
             return 'folder', fns
 
     data_type, aux = get_data_type(config.data_path)
+    # print(aux)
+    # print(data_type)
     if data_type in ['mp4', 'npz']:
         dataset = get_dataset(
             config.data_path, data_type, batch_size, initial_shape=initial_shape
         )
         class_map, mask_map = None, None
+
+        data_loader = prepare(
+            dataset, batch_size,
+            initial_shape=initial_shape,
+            num_device=N,
+        )
     else:
         data_paths = aux
         class_map = {osp.basename(k): i for i, k in enumerate(data_paths)}
@@ -166,11 +196,17 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
                 mask = None
             else:
                 mask = mask_map[osp.basename(data_path)]
-            dataset = get_dataset(data_path, data_type, batch_per_dset, initial_shape=None, mask=mask)
-            datasets.append(dataset)
+            d = get_dataset(data_path, data_type, batch_per_dset, initial_shape=None, mask=mask)
+            print("Number of data is {}".format(len(d)))
+            datasets.append(d)
         
-        combined_dataset = ConcatDataset(datasets)
-        labeled_dataset = LabelDataset(combined_dataset, data_paths)
+        dataset = ConcatDataset(datasets)
+        print("Total number of data is {}".format(len(dataset)))
+
+        if modality == 'video':
+            split = 'train' if train else 'test'
+            dataset = LabelDataset(dataset, data_paths, split)
+
 
         data_loader = prepare(
             dataset, batch_size,
@@ -184,7 +220,7 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
     return data_loader, class_map, mask_map
 
 
-def prepare(dataset, batch_size, initial_shape=None, num_devices=1):
+def prepare(dataset, batch_size, initial_shape=None, num_device=1):
     # Check if in DEBUG mode
     shuffle_size = batch_size if os.environ.get('DEBUG') == '1' else batch_size * 64
 
@@ -194,7 +230,7 @@ def prepare(dataset, batch_size, initial_shape=None, num_devices=1):
         batch_size=batch_size, 
         shuffle=True, # Shuffling the dataset
         drop_last=True, # Dropping the last incomplete batch
-        num_workers=os.cpu_count() // num_devices, # os.cpu_count(), # Utilizing multiple CPU cores
+        num_workers=os.cpu_count() // num_device, # os.cpu_count(), # Utilizing multiple CPU cores
         prefetch_factor=None, # Prefetching batches
         pin_memory=True,
         collate_fn=lambda x: custom_collate_fn(x, initial_shape)

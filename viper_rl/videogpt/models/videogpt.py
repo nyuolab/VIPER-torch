@@ -17,10 +17,11 @@ class VideoGPT(nn.Module):
             shape=self.shape,
             out_dim=self.ae.n_embed
         )
-        self.optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config.lr)
+        # progress
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(
             self.optimizer,
-            lr_lambda=lambda epoch: min((epoch + 1) / config.warmup_steps, 1)
+            lr_lambda=lambda epoch: min((epoch + 1) / (config.warmup_steps+1), 1)
         )
 
 
@@ -56,7 +57,10 @@ class VideoGPT(nn.Module):
 
         return -nll # .mean()  # Taking mean if required, based on how loss is calculated
 
-    def loss(self, embeddings, encodings, label=None, training=True):
+    def loss(self, batch, training=True):
+        embeddings = batch["embeddings"]
+        encodings = batch["encodings"]
+        label = batch["label"] if "label" in batch else None
         loss = -self.log_prob(
             embeddings, encodings, label, training=training
         ).mean() / np.prod(self.shape[1:])

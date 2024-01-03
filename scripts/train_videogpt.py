@@ -42,10 +42,11 @@ def main():
     new_generator = torch.Generator()
     new_generator.manual_seed(config.seed)  # Optionally, seed the new generator
 
-    config.ckpt = config.output_dir if osp.exists(config.output_dir) else None
+    # config.ckpt = config.output_dir if osp.exists(config.output_dir) else None
+    config.ckpt = None
 
     if is_master_process:
-        wandb.init(project='viper_rl', config=config,
+        wandb.init(project='videogpt', config=config,
                    id=config.run_id, resume='allow', mode='online')
         wandb.run.name = config.run_id
         wandb.run.save()
@@ -57,16 +58,20 @@ def main():
         assert class_map == class_map_test, (class_map, class_map_test)
         pickle.dump(class_map, open(osp.join(config.output_dir, 'class_map.pkl'), 'wb'))
 
-    ae = AE(config.ae_ckpt)
+    # print(config.ae)
+    ae = AE(config.ae_ckpt, config.ae)
 
-    batch = next(train_loader)
+
+    batch = next(iter(train_loader))
+    print(batch.keys())
     batch = ae.prepare_batch(batch)
     batch = get_first_device(batch)
-
+    
     model = VideoGPT(config, ae)
     model.to(device)
     sampler = VideoGPTSampler(model)
-    state, scheduler = init_model_state_videogpt(model, batch, config)
+   
+    state = init_model_state_videogpt(model, batch, config)
 
     if config.ckpt is not None:
         checkpoint = torch.load(glob.glob(config.ckpt)[-1])
@@ -83,7 +88,7 @@ def main():
 
     for iteration in range(start_iteration, config.total_steps):
         torch.manual_seed(iteration + random.randint(0, 100000))
-        iteration, state = train(iteration, ae, model, state, train_loader, schedule_fn)
+        iteration, state = train(iteration, ae, model, state, train_loader, device)
         if iteration % config.test_interval == 0:
             val_loss = validate(iteration, ae, model, test_loader)
             is_best = val_loss < best_loss
@@ -96,13 +101,16 @@ def main():
         
 
 
-def train_step(batch, state):
+def train_step(batch, state, device):
     state.model.train()
+
+    batch = {k: v.to(device) for k, v in batch.items()}
+
     state.model.optimizer.zero_grad()
 
     # Forward pass with dropout
-    outputs = state.model(**batch)
-    loss = state.model.loss(outputs)
+    # outputs = state.model(**batch)
+    loss = state.model.loss(batch)
 
     # Backward pass and optimize
     loss.backward()
@@ -118,27 +126,27 @@ def train_step(batch, state):
 
 
 
-def train(iteration, ae, model, state, train_loader, schedule_fn):
+def train(iteration, ae, model, state, train_loader, device):
     progress = ProgressMeter(
         config.total_steps,
         ['time', 'data'] + model.metrics
     )
 
     end = time.time()
-    while True:
-        batch = next(train_loader)
+    for batch in train_loader:
         batch_size = batch[list(batch.keys())[0]].shape[1]
+        print(batch[list(batch.keys())[0]].shape)
         progress.update(data=time.time() - end)
 
         batch = ae.prepare_batch(batch)
-        state, return_dict = train_step(batch=batch, state=state)
+        state, return_dict = train_step(batch=batch, state=state, device=device)
 
-        metrics = {k: return_dict[k].mean() for k in model.metrics}
-        metrics = {k: v.astype(jnp.float32) for k, v in metrics.items()}
+        metrics = {k: return_dict[k].detach().cpu().numpy().mean() for k in model.metrics}
+        metrics = {k: v.astype(np.float32) for k, v in metrics.items()}
         progress.update(n=batch_size, **{k: v for k, v in metrics.items()})
 
         if is_master_process:
-            wandb.log({'train/lr': state.G_scheduler(iteration)}, step=iteration)
+            wandb.log({'train/lr': state.model.scheduler.get_last_lr()[-1]}, step=iteration)
             wandb.log({**{f'train/{metric}': val
                         for metric, val in metrics.items()}
                     }, step=iteration)
@@ -163,8 +171,7 @@ def val_step(batch, state):
 
     with torch.no_grad():
         # Forward pass
-        outputs = state.model(**batch)
-        loss = state.model.loss(outputs, batch['targets'])
+        loss = state.model.loss(batch)
 
         # If using Distributed Data Parallel, the averaging across devices is handled automatically.
         # If not, and you need to average outputs across devices, you would need to do it manually here.
@@ -181,14 +188,14 @@ def validate(iteration, ae, model, state, test_loader, rngs):
 
     end = time.time()
     for i in range(50):
-        batch = next(test_loader)
+        batch = next(iter(test_loader))
         batch_size = batch[list(batch.keys())[0]].shape[1]
         progress.update(data=time.time() - end)
 
         batch = ae.prepare_batch(batch)
         return_dict = val_step(batch=batch, state=state)
 
-        metrics = {k: return_dict[k].mean() for k in model.metrics}
+        metrics = {k: return_dict[k].detach().cpu().numpy().mean() for k in model.metrics}
         metrics = {k: v.astype(np.float32) for k, v in metrics.items()}
         progress.update(n=batch_size, **{k: v for k, v in metrics.items()})
         progress.update(time=time.time() - end)

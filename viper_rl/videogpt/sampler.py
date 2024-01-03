@@ -7,7 +7,6 @@ class VideoGPTSampler:
     def __init__(self, model):
         self.ae = model.ae
         self.model = model
-        self.mode = mode
         self.config = model.config
 
     # @cached_property

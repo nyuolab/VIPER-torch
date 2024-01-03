@@ -19,7 +19,20 @@ seq_len: 16
 frame_skip: 1
 ae_ckpt: "viper_rl_data/checkpoints/dmc_vqgan"
 
-n_classes: 16
+ae:
+  image_size: 64
+  ch: 128
+  ch_mult: [1, 2, 2, 2]
+  num_res_blocks: 1
+  attn_resolutions: []
+  z_channels: 64
+  double_z: false
+  dropout: 0.
+  n_embed: 256
+  embed_dim: 64
+  patch_size: [8, 8]
+
+n_classes: 17
 class_cond: true
 
 model: "videogpt"

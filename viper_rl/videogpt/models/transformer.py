@@ -4,6 +4,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class GELU2(nn.Module):
+    def __init__(self):
+        super(GELU2, self).__init__()
+    
+    def forward(self, x):
+        return torch.sigmoid(1.702 * x) * x
+
 class Transformer(nn.Module):
     def __init__(self, embed_dim, mlp_dim, num_heads, num_layers, dropout, attention_dropout, shape, out_dim):
         super(Transformer, self).__init__()
@@ -26,7 +33,9 @@ class Transformer(nn.Module):
 
     def forward(self, x, mask=None, deterministic=False, label=None, decode_step=None):
         old_shape = x.shape[1:-1]
+        print(x.shape)
         x = x.view(x.shape[0], -1, x.shape[-1])
+        print(x.shape)
 
         x = self.dense_in(x)
         if decode_step is None or x.shape[1] > 1:
@@ -72,7 +81,7 @@ class TransformerLayer(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(embed_dim, mlp_dim),
             # Assuming gelu2 is already defined
-            gelu2,
+            GELU2(),
             nn.Dropout(dropout),
             nn.Linear(mlp_dim, embed_dim)
         )
@@ -241,7 +250,3 @@ class RightShift(nn.Module):
         # Concatenating sos at the beginning of each sequence in the batch
         x_shifted = torch.cat([sos, x[:, :-1]], dim=1)
         return x_shifted
-
-
-def gelu2(x):
-    return torch.sigmoid(1.702 * x) * x

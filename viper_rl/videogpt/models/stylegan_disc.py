@@ -91,7 +91,7 @@ class ConvDownsample2D(nn.Module):
 
 def minibatch_stddev_layer(x, group_size=None, num_new_features=1):
     N, C, H, W = x.shape  # Assuming NCHW format (common in PyTorch)
-    # N, H, W, C = x.shape
+    # print(x.shape) # [128, 512, 4, 4]
 
     if group_size is None or group_size > N:
         group_size = N
@@ -99,13 +99,15 @@ def minibatch_stddev_layer(x, group_size=None, num_new_features=1):
     C_ = C // num_new_features
 
     # Reshape and calculate std dev
-    y = x.view(-1, group_size, C_, num_new_features, H, W)
-    # print(y.shape) # [1, 2, 512, 1, 4, 4]
+    y = x.view(-1, N, C_, num_new_features, H, W)
+    # print(y.shape) # [1, 128, 512, 1, 4, 4]
     y_centered = y - torch.mean(y, dim=1, keepdim=True)
     y_std = torch.sqrt(torch.mean(y_centered ** 2, dim=1) + 1e-8)
+    # print(y_std.shape) # [1, 512, 1, 4, 4]
 
     y_std = torch.mean(y_std, dim=(1, 3, 4)).view(-1, 1, 1, num_new_features)
     y_std = y_std.repeat(N, 1, H, W)
+    # print(y_std.shape)
 
     return torch.cat((x, y_std), dim=1)
 

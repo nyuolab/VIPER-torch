@@ -119,9 +119,9 @@ def init_model_state_videogpt(model, batch, config):
     train_state = TrainStateEMA(
         model=model,
         optimizer=model.optimizer,
-        ema_decay=config.ema_decay  # Assuming ema_decay is a config attribute
+        ema_decay=config.ema  # Assuming ema_decay is a config attribute
     )
-    return train_state, model.scheduler
+    return train_state
 
 def init_model_state_vqgan(model, batch, config):
     # In PyTorch, models are initialized when they are created

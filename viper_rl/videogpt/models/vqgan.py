@@ -32,6 +32,7 @@ class VQGAN(nn.Module):
         self.quantize = VectorQuantizer(n_e=n_embed, e_dim=embed_dim)
         self.patch_size = patch_size
         self.embed_dim = embed_dim
+        self.n_embed = n_embed
         self.z_channels = z_channels
         ndims = len(self.patch_size)
         

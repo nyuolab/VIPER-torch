@@ -45,7 +45,7 @@ class VideoDataset(torch.utils.data.Dataset):
     
     def __getitem__(self, idx):
         video = self.dataset[idx]['video']
-        axis_order = tuple(range(video.ndim - 3)) + (video.ndim - 1, video.ndim - 3, video.ndim - 2)
+        axis_order = tuple(range(video.n - 3)) + (video.ndim - 1, video.ndim - 3, video.ndim - 2)
         video = np.transpose(video, axis_order)
         return {'video': video}
     
@@ -135,8 +135,8 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
         
         if modality == 'image':
             dataset = VideoToImageDataset(dataset)
-        else:
-            dataset = VideoDataset(dataset)
+        # else:
+        #     dataset = VideoDataset(dataset)
         # print(len(dataset))
         return dataset
 

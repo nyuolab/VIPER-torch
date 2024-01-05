@@ -54,7 +54,7 @@ class VQGAN(nn.Module):
         return ['vq_loss', 'ae_loss', 'perplexity']
 
     def latent_shape(self, image_size):
-        return tuple([image_size // p for p in self.patch_size])
+        return tuple([image_size // p for p in self.patch_size]) # (8, 8)
 
     def codebook_lookup(self, encodings):
         return self.quantize(None, encodings)    
@@ -323,7 +323,7 @@ class Upsample(nn.Module):
         self.strides = strides
         self.with_conv = with_conv
         ndims = len(strides)
-        print("stride dimension is {}".format(ndims))
+        print("upsample stride dimension is {}".format(ndims))
         if ndims == 1:
             self.conv = nn.Conv1d(channels, channels, kernel_size=3, padding=1)
         elif ndims == 2:

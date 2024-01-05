@@ -65,6 +65,7 @@ def load_vqgan(path, ae_config):
     # if osp.exists(checkpoint_path):
     #     model.load_state_dict(torch.load(checkpoint_path))
     model_files = glob.glob(f"{path}/checkpoints/*.pth")
+
     if len(model_files):
         checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
         print(checkpoint_path)
@@ -80,7 +81,7 @@ class AE:
         # PyTorch doesn't have a direct equivalent of JAX's 'pmap' or 'jit' mode
 
     def latent_shape(self, image_size):
-        return self.ae.latent_shape(image_size)
+        return self.ae.latent_shape(image_size) # (8, 8)
 
     @property
     def channels(self):
@@ -116,7 +117,12 @@ class AE:
             encodings = batch.pop('encodings')
         else:
             video = batch.pop('video')
+            # (..., H, W, C) -> (..., C, H, W)
+            axis_order = tuple(range(video.ndim - 3)) + (video.ndim - 1, video.ndim - 3, video.ndim - 2)
+            video = torch.permute(video, axis_order)
+            # print(video.shape) # [64, 16, 3, 64, 64]
             encodings = self.encode(video)
+            # print(encodings.shape) # [64, 16, 8, 8]
 
         if 'embeddings' in batch:
             embeddings = batch.pop('embeddings')

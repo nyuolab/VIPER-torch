@@ -17,6 +17,8 @@ import torch.distributed as dist
 
 dist.init_process_group(backend='nccl')
 
+# check: find . -maxdepth 1 -type d -name '*dmc_videogpt*'
+# find . -maxdepth 1 -type d -name '*dmc_videogpt*' -exec rm -rf {} \;
 
 directory = pathlib.Path(__file__).resolve()
 directory = directory.parent
@@ -44,6 +46,7 @@ def main():
 
     # config.ckpt = config.output_dir if osp.exists(config.output_dir) else None
     config.ckpt = None
+    config.device = device
 
     if is_master_process:
         wandb.init(project='videogpt', config=config,
@@ -63,7 +66,7 @@ def main():
 
 
     batch = next(iter(train_loader))
-    print(batch.keys())
+    # print(batch.keys())
     batch = ae.prepare_batch(batch)
     batch = get_first_device(batch)
     
@@ -110,6 +113,7 @@ def train_step(batch, state, device):
 
     # Forward pass with dropout
     # outputs = state.model(**batch)
+    
     loss = state.model.loss(batch)
 
     # Backward pass and optimize
@@ -135,10 +139,11 @@ def train(iteration, ae, model, state, train_loader, device):
     end = time.time()
     for batch in train_loader:
         batch_size = batch[list(batch.keys())[0]].shape[1]
-        print(batch[list(batch.keys())[0]].shape)
+        # print(batch[list(batch.keys())[0]].shape) # [64, 16, 64, 64, 3]
         progress.update(data=time.time() - end)
 
         batch = ae.prepare_batch(batch)
+        print(batch.keys())
         state, return_dict = train_step(batch=batch, state=state, device=device)
 
         metrics = {k: return_dict[k].detach().cpu().numpy().mean() for k in model.metrics}
@@ -171,7 +176,7 @@ def val_step(batch, state):
 
     with torch.no_grad():
         # Forward pass
-        loss = state.model.loss(batch)
+        loss = state.model.loss(batch, training=False)
 
         # If using Distributed Data Parallel, the averaging across devices is handled automatically.
         # If not, and you need to average outputs across devices, you would need to do it manually here.

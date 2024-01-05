@@ -2,6 +2,8 @@ import os
 import os.path as osp
 import pathlib
 import sys
+import re
+import glob
 from unittest.mock import NonCallableMagicMock
 import numpy as np
 import time
@@ -11,6 +13,7 @@ import pickle
 import wandb
 import random
 from datetime import datetime
+
 
 import torch
 import torch.distributed as dist
@@ -31,6 +34,9 @@ from viper_rl.videogpt.loss_vqgan import VQPerceptualWithDiscriminator
 from viper_rl.videogpt.data import load_dataset
 from viper_rl.videogpt.train_utils import init_model_state_vqgan, ProgressMeter, save_image_grid, get_first_device
 
+def extract_iteration(filename):
+    match = re.search(r"checkpoint_(\d+).pth", filename)
+    return int(match.group(1)) if match else 0
 
 def main():
     print("The world size is {}".format(dist.get_world_size()))
@@ -71,11 +77,13 @@ def main():
 
     state = init_model_state_vqgan(model, batch, config)
     if config.ckpt is not None:
-        checkpoint = torch.load(os.path.join(ckpt_dir, 'checkpoint_40001'))
-        state.model.load_state_dict(checkpoint['model_state_dict'])
-        state.G_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_iteration = checkpoint['iteration']
-        print(f'Restored from checkpoint {os.path.join(ckpt_dir)}, at iteration {start_iteration}')
+        model_files = glob.glob(f"{ckpt_dir}/checkpoints/*.pth")
+        if len(model_files):
+            checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
+            state.model.load_state_dict(checkpoint['model_state_dict'])
+            state.G_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            start_iteration = checkpoint['iteration']
+            print(f'Restored from checkpoint {os.path.join(ckpt_dir)}, at iteration {start_iteration}')
     else:
         start_iteration = 0
 
@@ -85,13 +93,14 @@ def main():
 
     # Randomize RNG so we get different rngs when restarting after preemptions
     # Otherwise we get the same sequence of noise
+    iteration = start_iteration
 
-    for iteration in range(start_iteration, config.total_steps):
+    while iteration < config.total_steps:
         # Randomize RNG
         torch.manual_seed(iteration + random.randint(0, 100000))
         
         # Training function
-        train(iteration, state, train_loader, device)
+        iteration, state = train(iteration, state, train_loader, device)
 
         # Checkpoint saving
         if iteration % config.save_interval == 0 and is_master_process:
@@ -166,12 +175,14 @@ def train(iteration, state, train_loader, device):
         if iteration % config.log_interval == 0:
             progress.display(iteration)
 
-        if iteration % config.save_interval == 0 or \
-        iteration % config.viz_interval == 0 or \
-        iteration >= config.total_steps:
-            return iteration, state
+        # if iteration % config.save_interval == 0 or \
+        # iteration % config.viz_interval == 0 or \
+        # iteration >= config.total_steps:
+        #     return iteration, state
 
         iteration += 1
+
+    return iteration, state
 
         
 def viz_step(batch, state):

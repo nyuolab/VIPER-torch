@@ -6,16 +6,21 @@ import torch.nn.functional as F
 
 from .transformer import Transformer
 
+
+
 class VideoGPT(nn.Module):
     def __init__(self, config, ae):
         super(VideoGPT, self).__init__()
         self.config = config
         self.ae = ae
-        self.shape = (config.seq_len, *ae.latent_shape(config.image_size))
+        self.shape = (config.seq_len, *ae.latent_shape(config.image_size)) # (16, 8, 8)
         self.model = Transformer(
+            config.image_size,
+            config.ae["embed_dim"],
             **self.config.transformer,
             shape=self.shape,
-            out_dim=self.ae.n_embed
+            out_dim=self.ae.n_embed,
+            device=config.device,
         )
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config.lr)
         # progress
@@ -30,7 +35,7 @@ class VideoGPT(nn.Module):
             assert label is not None, "label is required for class conditioned model"
 
         # Create mask (torch.tril can be used for triangular mask)
-        L = np.prod(self.shape)
+        L = np.prod(self.shape) # 1024
         mask = torch.tril(torch.ones((L, L), dtype=torch.bool))
 
         if self.config.class_cond:

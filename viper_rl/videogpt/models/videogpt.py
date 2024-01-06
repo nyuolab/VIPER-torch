@@ -36,12 +36,12 @@ class VideoGPT(nn.Module):
 
         # Create mask (torch.tril can be used for triangular mask)
         L = np.prod(self.shape) # 1024
-        mask = torch.tril(torch.ones((L, L), dtype=torch.bool))
+        mask = torch.tril(torch.ones((L, L), dtype=torch.bool)).to(self.config.device)
 
         if self.config.class_cond:
             label = F.one_hot(label, num_classes=self.config.n_classes)
 
-        return self.model(embeddings, mask=mask, label=label, decode_step=decode_step, deterministic=not training)
+        return self.model(embeddings, mask=mask, label=label, decode_step=decode_step, training=training)
 
     @property
     def metrics(self):
@@ -64,8 +64,11 @@ class VideoGPT(nn.Module):
 
     def loss(self, batch, training=True):
         embeddings = batch["embeddings"]
+        # print("embeddings shape is {}".format(embeddings.shape))
         encodings = batch["encodings"]
+        # print("encodings shape is {}".format(encodings.shape))
         label = batch["label"] if "label" in batch else None
+        # print("encodings shape is {}".format(label.shape))
         loss = -self.log_prob(
             embeddings, encodings, label, training=training
         ).mean() / np.prod(self.shape[1:])

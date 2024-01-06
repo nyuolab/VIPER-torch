@@ -153,6 +153,22 @@ def main(config):
     step = count_steps(config.traindir)
     # step in logger is environmental step
     logger = tools.Logger(logdir, config.action_repeat * step)
+
+    if config.reward_model != 'none':
+        print(f'Loading reward model {config.reward_model}')
+        from viper_rl.videogpt.reward_models import LOAD_REWARD_MODEL_DICT
+        reward_model = LOAD_REWARD_MODEL_DICT[config.reward_model](
+        task=config.task,
+        ae_config=config.ae,
+        transformer_config=config.transformer,
+        compute_joint=config.reward_model_compute_joint,
+        minibatch_size=config.reward_model_batch_size,
+        encoding_minibatch_size=config.reward_model_batch_size,
+        reward_model_device=config.device)
+    else:
+        reward_model = None
+
+    replay_kwargs = {'reward_model': reward_model}
     
     print("Create envs.")
     if config.offline_traindir:

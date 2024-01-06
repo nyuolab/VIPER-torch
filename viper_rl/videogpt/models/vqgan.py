@@ -375,6 +375,7 @@ class Downsample(nn.Module):
         if with_conv:
             # The number of dimensions is inferred from the length of the strides
             ndims = len(strides)
+            print("downsample stride dimension is {}".format(ndims))
             if ndims == 1:
                 self.conv = nn.Conv1d(channels, channels, kernel_size=3, stride=strides, padding=1)
             elif ndims == 2:

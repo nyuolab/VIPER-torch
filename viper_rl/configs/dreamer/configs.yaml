@@ -130,6 +130,37 @@ defaults:
   disag_units: 400
   disag_action_cond: False
 
+  # Prior
+  prior_rewards: {extr: 1.0, density: 1.0, disag: 0.0}
+  reward_model: none # dmc_videogpt_l16_s1
+  reward_model_batch_size: 32
+  reward_model_compute_joint: True
+
+  # AMP
+  amp_rewards: {extr: 1.0, disag: 0.0}
+  reference_dir: /dev/null
+  discriminator: {cnn_keys: '.*', act: silu, norm: layer, mlp_layers: 5, mlp_units: 1024, cnn: resnet, cnn_depth: 96, cnn_blocks: 0, resize: stride, winit: normal, fan: avg, symlog_inputs: True, minres: 4}
+  discriminator_head: {layers: 5, units: 1024, act: silu, norm: layer, dist: symlog_disc, outscale: 0.0, outnorm: False, inputs: [deter, stoch], winit: normal, fan: avg, bins: 255}
+  amp_window: 5
+
+  videogpt_prior_rb:
+    task_behavior: Prior
+    grad_heads: [decoder, density, cont]
+    prior_rewards: {extr: 0.0, density: 1.0, disag: 1.0}
+    wrapper.density: True
+    replay: uniform_relabel
+
+    run:
+      log_keys_max: '^log_.*'
+      log_keys_mean: '^log_.*'
+      log_keys_sum: '^log_.*'
+
+  motion_prior:
+    run:
+      script: train_amp
+    task_behavior: MotionPrior
+    grad_heads: [decoder, cont, discriminator_reward]
+
 dmc_proprio:
   steps: 5e5
   action_repeat: 2
@@ -147,6 +178,27 @@ dmc_vision:
   video_pred_log: true
   encoder: {mlp_keys: '$^', cnn_keys: 'image'}
   decoder: {mlp_keys: '$^', cnn_keys: 'image'}
+  ae:
+    image_size: 64
+    ch: 128
+    ch_mult: [1, 2, 2, 2]
+    num_res_blocks: 1
+    attn_resolutions: []
+    z_channels: 64
+    double_z: false
+    dropout: 0.
+    n_embed: 256
+    embed_dim: 64
+    patch_size: [8, 8]
+  transformer:
+    seq_len: 16
+    frame_skip: 1
+    embed_dim: 256
+    num_heads: 8
+    num_layers: 8
+    mlp_dim: 1024
+    dropout: 0.1
+    attention_dropout: 0.1
 
 crafter:
   task: crafter_reward
@@ -230,6 +282,7 @@ debug:
   prefill: 1
   batch_size: 10
   batch_length: 20
+
 
 
 

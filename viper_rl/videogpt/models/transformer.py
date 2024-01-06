@@ -24,7 +24,7 @@ class Transformer(nn.Module):
 
         self.dense_in = nn.Linear(in_features=ae_embed_dim, out_features=embed_dim)
         self.right_shift = RightShift(embed_dim)  # Assuming RightShift is already defined
-        self.position_bias = BroadcastPositionBiases(shape)  # Assuming BroadcastPositionBiases is already defined
+        self.position_bias = BroadcastPositionBiases(shape, device)  # Assuming BroadcastPositionBiases is already defined
         self.dropout = nn.Dropout(dropout)
 
         self.layers = nn.ModuleList([
@@ -35,7 +35,7 @@ class Transformer(nn.Module):
         self.norm = LayerNorm(embed_dim)  # Assuming LayerNorm is already defined
         self.dense_out = nn.Linear(embed_dim, out_dim)
 
-    def forward(self, x, mask=None, deterministic=False, label=None, decode_step=None):
+    def forward(self, x, mask=None, training=False, label=None, decode_step=None):
         old_shape = x.shape[1:-1]
         # print(x.shape) # [64, 16, 8, 8, 64]
         x = x.view(x.shape[0], -1, x.shape[-1])
@@ -48,7 +48,7 @@ class Transformer(nn.Module):
             x_shift = self.right_shift(x)
             x = x if decode_step > 0 else x_shift
 
-        position_bias = self.position_bias(x).to(self.device)
+        position_bias = self.position_bias(x)
 
         if decode_step is not None and x.shape[1] == 1:
             position_bias = position_bias[decode_step]
@@ -66,7 +66,7 @@ class Transformer(nn.Module):
 
         # progress
         for layer in self.layers:
-            x = layer(x, mask=mask, label=label, decode_step=decode_step, deterministic=deterministic)
+            x = layer(x, mask=mask, label=label, decode_step=decode_step, training=training)
         
         x = self.norm(x)
         x = self.dense_out(x)
@@ -98,7 +98,7 @@ class TransformerLayer(nn.Module):
         )
         self.dropout2 = nn.Dropout(dropout)
 
-    def forward(self, x, mask=None, label=None, decode_step=None, deterministic=False):
+    def forward(self, x, mask=None, label=None, decode_step=None, training=False):
         h = self.norm1(x)
         h = self.attn(h, mask=mask, decode_step=decode_step)
         h = self.dropout1(h)
@@ -130,55 +130,6 @@ class QKVTransform(nn.Module):
         query, key, value = qkv.chunk(3, dim=-1)
         return query, key, value
 
-# class DenseGeneral(nn.Module):
-#     def __init__(self, num_features):
-#         super(DenseGeneral, self).__init__()
-#         self.num_features = num_features
-#         self.linear = None
-
-#     def forward(self, x):
-#         # Dynamically create the linear layer based on the input shape
-#         *initial_dims, dim1, dim2 = x.shape
-#         if self.linear is None:
-#             combined_dim = dim1 * dim2
-#             self.linear = nn.Linear(combined_dim, self.num_features)
-
-#         # Reshape the input to combine the last two dimensions
-#         x_reshaped = x.view(-1, combined_dim)
-
-#         # Apply the linear transformation
-#         out = self.linear(x_reshaped)
-
-#         # Reshape the output to split the last dimension into two dimensions
-#         # We infer the second-to-last dimension, assuming num_features is divisible by dim2
-#         output_shape = initial_dims + [self.num_features // dim2, dim2]
-#         return out.view(output_shape)
-
-# class DotProductAttention(nn.Module):
-#     def __init__(self, dropout_rate=0.0):
-#         super(DotProductAttention, self).__init__()
-#         self.dropout = nn.Dropout(dropout_rate)
-
-#     def forward(self, query, key, value, mask=None, deterministic=True):
-#         d_k = query.size(-1)
-
-#         # Compute attention scores
-#         scores = torch.matmul(query, key.transpose(-2, -1)) / torch.sqrt(torch.tensor(d_k).float())
-
-#         # Apply mask (if provided)
-#         # if mask is not None:
-#         #     scores = scores.masked_fill(mask == 0, float('-inf'))
-
-#         # Apply softmax to get attention weights
-#         attention_weights = F.softmax(scores, dim=-1)
-
-#         # Apply dropout if not in deterministic mode
-#         if not deterministic:
-#             attention_weights = self.dropout(attention_weights)
-
-#         # Apply the attention to the value tensor
-#         output = torch.matmul(attention_weights, value)
-#         return output
 
 class DotProductAttention(nn.Module):
     def __init__(self, head_dim, num_heads, dropout_rate=0.0):
@@ -191,37 +142,80 @@ class DotProductAttention(nn.Module):
         # Output projection layer
         self.out_proj = nn.Linear(self.embed_dim, self.embed_dim)
 
-    def forward(self, query, key, value, qkv_proj, attn_mask=None, key_padding_mask=None, deterministic=False):
+    def safe_softmax(self, scores, dim, attn_mask=None):
+        if attn_mask is not None:
+            scores = scores.masked_fill(attn_mask == 0, -float('inf'))
+        max_scores = scores.max(dim, keepdim=True)[0]
+        scores = scores - max_scores
+        exp_scores = torch.exp(scores)
+        sum_exp_scores = exp_scores.sum(dim, keepdim=True)
+        softmax_scores = exp_scores / sum_exp_scores
+        return softmax_scores
+    
+    def stable_multi_head_attention_forward(self, query, key, value, embed_dim, num_heads, attn_mask, dropout_p, out_proj_weight, out_proj_bias, training, key_padding_mask):
+        # Normalizing the attention scores
+        scaling = float(embed_dim) ** -0.5
+        query = query * scaling
+
+        # Compute attention scores
+        attn_output_weights = torch.matmul(query, key.transpose(-2, -1))
+        # print(attn_output_weights.shape)
+        # Apply safe softmax to get the probabilities
+        attn_output_weights = self.safe_softmax(attn_output_weights, dim=-1, attn_mask=attn_mask)
+
+        # Apply dropout
+        attn_output_weights = F.dropout(attn_output_weights, p=dropout_p, training=training)
+
+        # Compute the weighted average
+        attn_output = torch.matmul(attn_output_weights, value)
+
+        return attn_output, attn_output_weights
+
+    def forward(self, query, key, value, qkv_proj, attn_mask=None, key_padding_mask=None, training=False):
         # Ensure query, key, value are batched 3D tensors [batch_size, seq_length, embed_dim]
         batch_size, seq_length, _, _ = query.size() # torch.Size([64, 1024, 8, 32])
 
 
         # Reshape query, key, value for multi-head attention
         # Split the embed_dim into (num_heads, head_dim)
-        query = query.reshape(batch_size, seq_length, -1)
-        key = key.reshape(batch_size, seq_length, -1)
-        value = value.reshape(batch_size, seq_length, -1)
+        query = query.reshape(batch_size, seq_length, -1) #.transpose(0, 1)
+        key = key.reshape(batch_size, seq_length, -1) #.transpose(0, 1)
+        value = value.reshape(batch_size, seq_length, -1) #.transpose(0, 1)
 
-        attn_output, _ = F.multi_head_attention_forward(
-            query=query, key=key, value=value,
-            embed_dim_to_check=self.embed_dim, num_heads=self.num_heads,
-            in_proj_weight=qkv_proj.weight, in_proj_bias=qkv_proj.bias,
-            bias_k=None, bias_v=None,
-            add_zero_attn=False, 
-            dropout_p=self.dropout_rate,
-            out_proj_weight=self.out_proj.weight, 
-            out_proj_bias=self.out_proj.bias,
-            training=not deterministic,
-            key_padding_mask=key_padding_mask, 
-            need_weights=True,
-            attn_mask=None, # attn_mask.unsqueeze(0)
+        if attn_mask is not None:
+            # Unsqueeze and expand the mask to match the batch size
+            # attn_mask = attn_mask.masked_fill(attn_mask == 0, -float('inf'))
+            attn_mask = attn_mask.unsqueeze(0)  # Add a batch dimension: [1, sequence_length, sequence_length]
+            attn_mask = attn_mask.expand(batch_size, -1, -1)  # Expand mask: [batch_size, sequence_length, sequence_length]
+
+        attn_output, _ = self.stable_multi_head_attention_forward(
+            query, key, value, self.embed_dim, self.num_heads,
+            attn_mask, self.dropout_rate,
+            self.out_proj.weight, self.out_proj.bias,
+            training, key_padding_mask
         )
 
-        # print(attn_output.shape) # torch.Size([64, 1024, 256])
+        # attn_output, _ = F.multi_head_attention_forward(
+        #     query=query, key=key, value=value,
+        #     embed_dim_to_check=self.embed_dim, num_heads=self.num_heads,
+        #     in_proj_weight=qkv_proj.weight, in_proj_bias=qkv_proj.bias,
+        #     bias_k=None, bias_v=None,
+        #     add_zero_attn=False, 
+        #     dropout_p=self.dropout_rate,
+        #     out_proj_weight=self.out_proj.weight, 
+        #     out_proj_bias=self.out_proj.bias,
+        #     training=training,
+        #     key_padding_mask=key_padding_mask, 
+        #     need_weights=True,
+        #     attn_mask=attn_mask,
+        # )
 
+        # print(attn_output.shape) # torch.Size([64, 1024, 256])
+        # print("Number of nans is {}".format(torch.nonzero(torch.isnan(attn_output.view(-1)))))
         # Apply the output projection
         # attn_output = attn_output.contiguous().view(batch_size, seq_length, -1)
-        attn_output = self.out_proj(attn_output)
+        attn_output = self.out_proj(attn_output) # .transpose(0, 1))
+        # print(attn_output.shape)
         
         return attn_output
 
@@ -245,7 +239,7 @@ class MultiHeadAttention(nn.Module):
 
         self.dot_product_attention = DotProductAttention(head_dim, num_heads, dropout_rate=dropout_rate)
     
-    # def dot_product_attention(self, query, key, value, mask=None, dropout_rate=0.0, deterministic=True):
+    # def dot_product_attention(self, query, key, value, mask=None, dropout_rate=0.0, training=True):
     #     # Calculate the dot product attention (scaled by key dimension)
     #     d_k = query.size(-1)
     #     scores = torch.matmul(query, key.transpose(-2, -1)) / torch.sqrt(torch.tensor(d_k).float())
@@ -258,15 +252,15 @@ class MultiHeadAttention(nn.Module):
     #     # Softmax to get attention weights
     #     attention_weights = F.softmax(scores, dim=-1)
 
-    #     # Apply dropout if not in deterministic mode
-    #     if not deterministic and dropout_rate > 0.0:
+    #     # Apply dropout if in training mode
+    #     if training and dropout_rate > 0.0:
     #         attention_weights = F.dropout(attention_weights, p=dropout_rate)
 
     #     # Apply the attention to the value tensor
     #     output = torch.matmul(attention_weights, value)
     #     return output
         
-    def forward(self, inputs, mask=None, decode_step=None, deterministic=False):
+    def forward(self, inputs, mask=None, decode_step=None, training=False):
         qkv = self.qkv_proj(inputs)
         # total_dim = qkv.size(-1)
         qkv = qkv.view(*qkv.shape[:-1], self.num_heads, 3 * self.head_dim)
@@ -304,18 +298,18 @@ class MultiHeadAttention(nn.Module):
         #     embed_dim_to_check=total_dim,
         #     num_heads=self.num_heads,
         #     dropout_p=self.dropout_rate,
-        #     training=not deterministic,
+        #     training=training,
         #     need_weights=False,
         #     attn_mask=mask
         # )
 
-        attn_output, _ = self.dot_product_attention(
+        attn_output = self.dot_product_attention(
             query=query,
             key=key,
             value=value,
             qkv_proj=self.qkv_proj,
             attn_mask=mask,
-            deterministic=deterministic,
+            training=training,
         )
         
         # print(attn_output.shape) # torch.Size([64, 1024, 256])
@@ -373,9 +367,10 @@ class LayerNorm(nn.Module):
 
 
 class BroadcastPositionBiases(nn.Module):
-    def __init__(self, shape: Tuple[int]):
+    def __init__(self, shape: Tuple[int], device):
         super(BroadcastPositionBiases, self).__init__()
         self.shape = shape
+        self.device = device
         n_dim = len(shape)
         self.n_dim = n_dim
         self.embs = nn.ParameterList()
@@ -385,7 +380,7 @@ class BroadcastPositionBiases(nn.Module):
 
         for i in range(n_dim):
             # Placeholders for actual sizes which will be set in the forward method
-            self.embs.append(nn.Parameter(torch.randn(1) * 0.02))
+            self.embs.append(nn.Parameter(torch.randn(1) * 0.02)).to(self.device)
 
     def forward(self, x):
         if self.embed_dim is None:
@@ -395,7 +390,7 @@ class BroadcastPositionBiases(nn.Module):
             assert sum(chunk_sizes) == self.embed_dim, f'sum({chunk_sizes}) = {sum(chunk_sizes)} != {self.embed_dim}'
 
             for i, emb in enumerate(self.embs):
-                self.embs[i] = nn.Parameter(torch.randn(self.shape[i], chunk_sizes[i]) * 0.02)
+                self.embs[i] = nn.Parameter(torch.randn(self.shape[i], chunk_sizes[i]) * 0.02).to(self.device)
 
         out = []
         for i, e in enumerate(self.embs):

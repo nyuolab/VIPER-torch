@@ -20,6 +20,7 @@ import torch.distributed as dist
 
 dist.init_process_group(backend='nccl')
 
+global is_master_process
 
 # import jax
 # import jax.numpy as jnp
@@ -46,6 +47,7 @@ def main():
         torch.cuda.manual_seed_all(seed)
     
     global model
+    global ckpt_dir
 
     num_device = torch.cuda.device_count()
 
@@ -100,17 +102,7 @@ def main():
         torch.manual_seed(iteration + random.randint(0, 100000))
         
         # Training function
-        iteration, state = train(iteration, state, train_loader, device)
-
-        # Checkpoint saving
-        if iteration % config.save_interval == 0 and is_master_process:
-            save_path = os.path.join(ckpt_dir, f'checkpoint_{iteration}.pth')
-            torch.save({
-                'iteration': iteration,
-                'model_state_dict': state.model.vqgan.state_dict(),
-                'optimizer_state_dict': state.G_optimizer.state_dict()
-            }, save_path)
-            print('Saved checkpoint to', save_path)
+        iteration, state = train(iteration, state, train_loader, config, device)
         
         # Visualization
         # if iteration % config.viz_interval == 0:
@@ -145,7 +137,7 @@ def train_step(batch, state, device):
     return state, aux
 
 
-def train(iteration, state, train_loader, device):
+def train(iteration, state, train_loader, config, device):
     progress = ProgressMeter(
         config.total_steps,
         ['time', 'data'] + model.metrics
@@ -171,6 +163,17 @@ def train(iteration, state, train_loader, device):
 
         progress.update(time=time.time() - end)
         end = time.time()
+
+        # Checkpoint saving
+        if iteration % config.save_interval == 0 and is_master_process:
+            save_path = os.path.join(ckpt_dir, f'checkpoint_{iteration}.pth')
+            torch.save({
+                'iteration': iteration,
+                'model_state_dict': state.model.vqgan.state_dict(),
+                'optimizer_state_dict': state.G_optimizer.state_dict()
+            }, save_path)
+            print('Saved checkpoint to', save_path)
+            print('Saved checkpoint at iteration', iteration)
 
         if iteration % config.log_interval == 0:
             progress.display(iteration)
@@ -259,6 +262,5 @@ if __name__ == '__main__':
     config = args
 
     is_master_process = dist.get_rank() == 0
-    # is_master_process = False
 
     main()

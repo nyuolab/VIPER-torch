@@ -17,6 +17,8 @@ import torch.distributed as dist
 
 dist.init_process_group(backend='nccl')
 
+global is_master_process
+
 # check: find . -maxdepth 1 -type d -name '*dmc_videogpt*'
 # find . -maxdepth 1 -type d -name '*dmc_videogpt*' -exec rm -rf {} \;
 
@@ -33,6 +35,8 @@ from viper_rl.videogpt.train_utils import init_model_state_videogpt, get_first_d
 
 def main():
     global model
+    global ckpt_dir
+    
     seed = config.seed
     torch.manual_seed(seed)
     if torch.cuda.is_available():
@@ -47,6 +51,7 @@ def main():
     # config.ckpt = config.output_dir if osp.exists(config.output_dir) else None
     config.ckpt = None
     config.device = device
+    ckpt_dir = osp.join(config.output_dir, 'checkpoints')
 
     if is_master_process:
         wandb.init(project='videogpt', config=config,
@@ -85,26 +90,25 @@ def main():
     else:
         start_iteration = 0
 
-    ckpt_dir = osp.join(config.output_dir, 'checkpoints')
 
     best_loss = float('inf')
 
-    for iteration in range(start_iteration, config.total_steps):
+    iteration = start_iteration
+
+    while iteration < config.total_steps:
         torch.manual_seed(iteration + random.randint(0, 100000))
-        iteration, state = train(iteration, ae, model, state, train_loader, device)
+        iteration, state = train(iteration, ae, state, train_loader, config, device)
         if iteration % config.test_interval == 0:
-            val_loss = validate(iteration, ae, model, test_loader)
+            val_loss = validate(iteration, ae, state, test_loader, device)
             is_best = val_loss < best_loss
             best_loss = min(best_loss, val_loss)
-        if iteration % config.viz_interval == 0:
-            visualize(sampler, ae, iteration, state, test_loader)
-        if iteration % config.save_interval == 0 and is_master_process and is_best:
-            torch.save(model.state_dict(), f'checkpoint_{iteration}.pth')
-            print('Saved checkpoint at iteration', iteration)
+        # if iteration % config.viz_interval == 0:
+        #     visualize(sampler, ae, iteration, state, test_loader)
+        
         
 
 
-def train_step(batch, state, device):
+def train_step(batch, state, device, step):
     state.model.train()
 
     batch = {k: v.to(device) for k, v in batch.items()}
@@ -117,12 +121,12 @@ def train_step(batch, state, device):
     loss = state.model.loss(batch)
 
     # Backward pass and optimize
-    loss.backward()
+    loss["loss"].backward()
     state.model.optimizer.step()
 
     # Update EMA parameters if enabled
     if config.ema:
-        decay = config.ema if state.step > 0 else 0.0
+        decay = config.ema if step > 0 else 0.0
         with torch.no_grad():
             state.update_ema(decay)
 
@@ -130,7 +134,7 @@ def train_step(batch, state, device):
 
 
 
-def train(iteration, ae, model, state, train_loader, device):
+def train(iteration, ae, state, train_loader, config, device):
     progress = ProgressMeter(
         config.total_steps,
         ['time', 'data'] + model.metrics
@@ -143,8 +147,8 @@ def train(iteration, ae, model, state, train_loader, device):
         progress.update(data=time.time() - end)
 
         batch = ae.prepare_batch(batch)
-        print(batch.keys())
-        state, return_dict = train_step(batch=batch, state=state, device=device)
+        # print(batch.keys())
+        state, return_dict = train_step(batch=batch, state=state, device=device, step=iteration)
 
         metrics = {k: return_dict[k].detach().cpu().numpy().mean() for k in model.metrics}
         metrics = {k: v.astype(np.float32) for k, v in metrics.items()}
@@ -161,18 +165,32 @@ def train(iteration, ae, model, state, train_loader, device):
 
         if iteration % config.log_interval == 0:
             progress.display(iteration)
+        
+        if iteration % config.save_interval == 0 and is_master_process: # and is_best:
+            save_path = os.path.join(ckpt_dir, f'checkpoint_{iteration}.pth')
+            torch.save({
+                'iteration': iteration,
+                'model_state_dict': state.model.state_dict(),
+                'optimizer_state_dict': state.optimizer.state_dict()
+            }, save_path)
+            print('Saved checkpoint to', save_path)
+            print('Saved checkpoint at iteration', iteration)
 
-        if iteration % config.viz_interval == 0 or \
-        iteration % config.test_interval == 0 or \
-        iteration % config.save_interval == 0 or \
-        iteration >= config.total_steps:
-            return iteration, state, rngs
+        # if iteration % config.viz_interval == 0 or \
+        # iteration % config.test_interval == 0 or \
+        # iteration % config.save_interval == 0 or \
+        # iteration >= config.total_steps:
+        #     return iteration, state, rngs
 
         iteration += 1
+    
+    return iteration, state
 
 
-def val_step(batch, state):
+def val_step(batch, state, device):
     state.model.eval()
+
+    batch = {k: v.to(device) for k, v in batch.items()}
 
     with torch.no_grad():
         # Forward pass
@@ -184,7 +202,7 @@ def val_step(batch, state):
     return loss
 
 
-def validate(iteration, ae, model, state, test_loader, rngs):
+def validate(iteration, ae, state, test_loader, device):
     progress = ProgressMeter(
         50,
         ['time', 'data'] + model.metrics,
@@ -198,7 +216,7 @@ def validate(iteration, ae, model, state, test_loader, rngs):
         progress.update(data=time.time() - end)
 
         batch = ae.prepare_batch(batch)
-        return_dict = val_step(batch=batch, state=state)
+        return_dict = val_step(batch=batch, state=state, device=device)
 
         metrics = {k: return_dict[k].detach().cpu().numpy().mean() for k in model.metrics}
         metrics = {k: v.astype(np.float32) for k, v in metrics.items()}

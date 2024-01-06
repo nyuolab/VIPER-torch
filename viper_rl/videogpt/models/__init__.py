@@ -15,13 +15,13 @@ def extract_iteration(filename):
     match = re.search(r"checkpoint_(\d+).pth", filename)
     return int(match.group(1)) if match else 0
 
-def load_videogpt(path, replicate=True, ae=None):
+def load_videogpt(path, transformer_config, ae_config, ae=None, replicate=True):
     # Load configuration
     config = pickle.load(open(osp.join(path, 'args'), 'rb'))
     
     # Initialize the AE model if not provided
     if ae is None:
-        ae = AE(config.ae_ckpt)  # Adjust AE initialization as per your PyTorch implementation
+        ae = AE(config.ae_ckpt, ae_config)  # Adjust AE initialization as per your PyTorch implementation
 
     # Initialize the VideoGPT model
     model = VideoGPT(config, ae)
@@ -68,7 +68,7 @@ def load_vqgan(path, ae_config):
 
     if len(model_files):
         checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
-        print(checkpoint_path)
+        print("load vqgan weights from {}".format(checkpoint_path))
         model.load_state_dict(torch.load(checkpoint_path), strict=False)
 
     return model, mask_map

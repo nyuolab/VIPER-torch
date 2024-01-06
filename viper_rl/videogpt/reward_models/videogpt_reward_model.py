@@ -32,7 +32,9 @@ class VideoGPTRewardModel:
     PRIVATE_LIKELIHOOD_KEY = 'log_immutable_density'
     PUBLIC_LIKELIHOOD_KEY = 'density'
 
-    def __init__(self, task: str, vqgan_path: str, videogpt_path: str,
+    def __init__(self, task: str, 
+                 ae_config, transformer_config,
+                 vqgan_path: str, videogpt_path: str,
                  camera_key: str='image',
                  reward_scale: Optional[Union[Dict[str, Tuple], Tuple]]=None,
                  reward_model_device: int=0,
@@ -67,9 +69,9 @@ class VideoGPTRewardModel:
         # Load VQGAN and VideoGPT weights.
         self.device = reward_model_device
         print(f'Reward model devices: {self.device}')
-        self.ae = AE(path=vqgan_path)
+        self.ae = AE(path=vqgan_path, ae_config=ae_config)
         self.ae = self.ae.to(self.device)
-        self.model, self.class_map = load_videogpt(videogpt_path, ae=self.ae, replicate=False)
+        self.model, self.class_map = load_videogpt(videogpt_path, transformer_config=transformer_config, ae_config=ae_config, ae=self.ae, replicate=False)
         config = self.model.config
         self.sampler = sampler.VideoGPTSampler(self.model)
         self.model = self.model.to(self.device)

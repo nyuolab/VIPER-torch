@@ -1,0 +1,384 @@
+downsample stride dimension is 2
+downsample stride dimension is 2
+downsample stride dimension is 2
+upsample stride dimension is 2
+upsample stride dimension is 2
+upsample stride dimension is 2
+downsample stride dimension is 2
+downsample stride dimension is 2
+downsample stride dimension is 2
+upsample stride dimension is 2
+upsample stride dimension is 2
+upsample stride dimension is 2
+load vqgan weights from viper_rl_data/checkpoints/dmc_vqgan/checkpoints/checkpoint_1000.pth
+load vqgan weights from viper_rl_data/checkpoints/dmc_vqgan/checkpoints/checkpoint_14000.pth
+encoder.layers.0.weight
+tensor(0.8495, grad_fn=<SumBackward0>)
+encoder.layers.0.bias
+tensor(0.0321, grad_fn=<SumBackward0>)
+encoder.layers.1.norm1.weight
+tensor(0.0405, grad_fn=<SumBackward0>)
+encoder.layers.1.norm1.bias
+tensor(0.0320, grad_fn=<SumBackward0>)
+encoder.layers.1.conv1.weight
+tensor(34.9497, grad_fn=<SumBackward0>)
+encoder.layers.1.conv1.bias
+tensor(0.0285, grad_fn=<SumBackward0>)
+encoder.layers.1.norm2.weight
+tensor(0.0333, grad_fn=<SumBackward0>)
+encoder.layers.1.norm2.bias
+tensor(0.0254, grad_fn=<SumBackward0>)
+encoder.layers.1.conv2.weight
+tensor(28.1407, grad_fn=<SumBackward0>)
+encoder.layers.1.conv2.bias
+tensor(0.0217, grad_fn=<SumBackward0>)
+encoder.layers.2.conv.weight
+tensor(28.9634, grad_fn=<SumBackward0>)
+encoder.layers.2.conv.bias
+tensor(0.0232, grad_fn=<SumBackward0>)
+encoder.layers.3.norm1.weight
+tensor(0.0272, grad_fn=<SumBackward0>)
+encoder.layers.3.norm1.bias
+tensor(0.0250, grad_fn=<SumBackward0>)
+encoder.layers.3.conv1.weight
+tensor(51.4121, grad_fn=<SumBackward0>)
+encoder.layers.3.conv1.bias
+tensor(0.0433, grad_fn=<SumBackward0>)
+encoder.layers.3.norm2.weight
+tensor(0.0504, grad_fn=<SumBackward0>)
+encoder.layers.3.norm2.bias
+tensor(0.0330, grad_fn=<SumBackward0>)
+encoder.layers.3.conv2.weight
+tensor(83.9154, grad_fn=<SumBackward0>)
+encoder.layers.3.conv2.bias
+tensor(0.0242, grad_fn=<SumBackward0>)
+encoder.layers.3.shortcut_conv.weight
+tensor(4.5650, grad_fn=<SumBackward0>)
+encoder.layers.3.shortcut_conv.bias
+tensor(0.0242, grad_fn=<SumBackward0>)
+encoder.layers.4.conv.weight
+tensor(74.4901, grad_fn=<SumBackward0>)
+encoder.layers.4.conv.bias
+tensor(0.0218, grad_fn=<SumBackward0>)
+encoder.layers.5.norm1.weight
+tensor(0.0317, grad_fn=<SumBackward0>)
+encoder.layers.5.norm1.bias
+tensor(0.0272, grad_fn=<SumBackward0>)
+encoder.layers.5.conv1.weight
+tensor(160.7105, grad_fn=<SumBackward0>)
+encoder.layers.5.conv1.bias
+tensor(0.0504, grad_fn=<SumBackward0>)
+encoder.layers.5.norm2.weight
+tensor(0.0761, grad_fn=<SumBackward0>)
+encoder.layers.5.norm2.bias
+tensor(0.0412, grad_fn=<SumBackward0>)
+encoder.layers.5.conv2.weight
+tensor(270.6104, grad_fn=<SumBackward0>)
+encoder.layers.5.conv2.bias
+tensor(0.0275, grad_fn=<SumBackward0>)
+encoder.layers.5.shortcut_conv.weight
+tensor(14.1650, grad_fn=<SumBackward0>)
+encoder.layers.5.shortcut_conv.bias
+tensor(0.0275, grad_fn=<SumBackward0>)
+encoder.layers.6.conv.weight
+tensor(269.4140, grad_fn=<SumBackward0>)
+encoder.layers.6.conv.bias
+tensor(0.0323, grad_fn=<SumBackward0>)
+encoder.layers.7.norm1.weight
+tensor(0.0704, grad_fn=<SumBackward0>)
+encoder.layers.7.norm1.bias
+tensor(0.0497, grad_fn=<SumBackward0>)
+encoder.layers.7.conv1.weight
+tensor(736.9031, grad_fn=<SumBackward0>)
+encoder.layers.7.conv1.bias
+tensor(0.1101, grad_fn=<SumBackward0>)
+encoder.layers.7.norm2.weight
+tensor(0.2013, grad_fn=<SumBackward0>)
+encoder.layers.7.norm2.bias
+tensor(0.1344, grad_fn=<SumBackward0>)
+encoder.layers.7.conv2.weight
+tensor(1396.5665, grad_fn=<SumBackward0>)
+encoder.layers.7.conv2.bias
+tensor(0.0988, grad_fn=<SumBackward0>)
+encoder.layers.7.shortcut_conv.weight
+tensor(73.0264, grad_fn=<SumBackward0>)
+encoder.layers.7.shortcut_conv.bias
+tensor(0.0988, grad_fn=<SumBackward0>)
+encoder.final_layers.0.norm1.weight
+tensor(0.1850, grad_fn=<SumBackward0>)
+encoder.final_layers.0.norm1.bias
+tensor(0.0997, grad_fn=<SumBackward0>)
+encoder.final_layers.0.conv1.weight
+tensor(1798.7836, grad_fn=<SumBackward0>)
+encoder.final_layers.0.conv1.bias
+tensor(0.1102, grad_fn=<SumBackward0>)
+encoder.final_layers.0.norm2.weight
+tensor(0.2128, grad_fn=<SumBackward0>)
+encoder.final_layers.0.norm2.bias
+tensor(0.1332, grad_fn=<SumBackward0>)
+encoder.final_layers.0.conv2.weight
+tensor(2139.3552, grad_fn=<SumBackward0>)
+encoder.final_layers.0.conv2.bias
+tensor(0.1477, grad_fn=<SumBackward0>)
+encoder.final_layers.1.norm.weight
+tensor(0.2527, grad_fn=<SumBackward0>)
+encoder.final_layers.1.norm.bias
+tensor(0.2165, grad_fn=<SumBackward0>)
+encoder.final_layers.1.q_conv.weight
+tensor(219.5854, grad_fn=<SumBackward0>)
+encoder.final_layers.1.q_conv.bias
+tensor(0.3140, grad_fn=<SumBackward0>)
+encoder.final_layers.1.k_conv.weight
+tensor(216.8183, grad_fn=<SumBackward0>)
+encoder.final_layers.1.k_conv.bias
+tensor(4.8950e-05, grad_fn=<SumBackward0>)
+encoder.final_layers.1.v_conv.weight
+tensor(321.9077, grad_fn=<SumBackward0>)
+encoder.final_layers.1.v_conv.bias
+tensor(0.3008, grad_fn=<SumBackward0>)
+encoder.final_layers.1.out_conv.weight
+tensor(347.0378, grad_fn=<SumBackward0>)
+encoder.final_layers.1.out_conv.bias
+tensor(0.2506, grad_fn=<SumBackward0>)
+encoder.final_layers.2.norm1.weight
+tensor(0.2321, grad_fn=<SumBackward0>)
+encoder.final_layers.2.norm1.bias
+tensor(0.1932, grad_fn=<SumBackward0>)
+encoder.final_layers.2.conv1.weight
+tensor(2480.6902, grad_fn=<SumBackward0>)
+encoder.final_layers.2.conv1.bias
+tensor(0.2374, grad_fn=<SumBackward0>)
+encoder.final_layers.2.norm2.weight
+tensor(0.7041, grad_fn=<SumBackward0>)
+encoder.final_layers.2.norm2.bias
+tensor(0.5745, grad_fn=<SumBackward0>)
+encoder.final_layers.2.conv2.weight
+tensor(3480.9995, grad_fn=<SumBackward0>)
+encoder.final_layers.2.conv2.bias
+tensor(0.3700, grad_fn=<SumBackward0>)
+encoder.final_layers.3.weight
+tensor(1.5834, grad_fn=<SumBackward0>)
+encoder.final_layers.3.bias
+tensor(1.5314, grad_fn=<SumBackward0>)
+encoder.final_layers.5.weight
+tensor(544.3467, grad_fn=<SumBackward0>)
+encoder.final_layers.5.bias
+tensor(0.0103, grad_fn=<SumBackward0>)
+decoder.layers.0.weight
+tensor(13.2750, grad_fn=<SumBackward0>)
+decoder.layers.0.bias
+tensor(0.0163, grad_fn=<SumBackward0>)
+decoder.layers.1.norm1.weight
+tensor(0.0124, grad_fn=<SumBackward0>)
+decoder.layers.1.norm1.bias
+tensor(0.0158, grad_fn=<SumBackward0>)
+decoder.layers.1.conv1.weight
+tensor(43.4151, grad_fn=<SumBackward0>)
+decoder.layers.1.conv1.bias
+tensor(0.0131, grad_fn=<SumBackward0>)
+decoder.layers.1.norm2.weight
+tensor(0.0124, grad_fn=<SumBackward0>)
+decoder.layers.1.norm2.bias
+tensor(0.0127, grad_fn=<SumBackward0>)
+decoder.layers.1.conv2.weight
+tensor(44.1427, grad_fn=<SumBackward0>)
+decoder.layers.1.conv2.bias
+tensor(0.0140, grad_fn=<SumBackward0>)
+decoder.layers.2.norm.weight
+tensor(0.0188, grad_fn=<SumBackward0>)
+decoder.layers.2.norm.bias
+tensor(0.0258, grad_fn=<SumBackward0>)
+decoder.layers.2.q_conv.weight
+tensor(9.2243, grad_fn=<SumBackward0>)
+decoder.layers.2.q_conv.bias
+tensor(0.0483, grad_fn=<SumBackward0>)
+decoder.layers.2.k_conv.weight
+tensor(9.2821, grad_fn=<SumBackward0>)
+decoder.layers.2.k_conv.bias
+tensor(9.5053e-08, grad_fn=<SumBackward0>)
+decoder.layers.2.v_conv.weight
+tensor(7.4535, grad_fn=<SumBackward0>)
+decoder.layers.2.v_conv.bias
+tensor(0.0284, grad_fn=<SumBackward0>)
+decoder.layers.2.out_conv.weight
+tensor(5.3950, grad_fn=<SumBackward0>)
+decoder.layers.2.out_conv.bias
+tensor(0.0134, grad_fn=<SumBackward0>)
+decoder.layers.3.norm1.weight
+tensor(0.0142, grad_fn=<SumBackward0>)
+decoder.layers.3.norm1.bias
+tensor(0.0160, grad_fn=<SumBackward0>)
+decoder.layers.3.conv1.weight
+tensor(49.6963, grad_fn=<SumBackward0>)
+decoder.layers.3.conv1.bias
+tensor(0.0137, grad_fn=<SumBackward0>)
+decoder.layers.3.norm2.weight
+tensor(0.0129, grad_fn=<SumBackward0>)
+decoder.layers.3.norm2.bias
+tensor(0.0135, grad_fn=<SumBackward0>)
+decoder.layers.3.conv2.weight
+tensor(48.4002, grad_fn=<SumBackward0>)
+decoder.layers.3.conv2.bias
+tensor(0.0119, grad_fn=<SumBackward0>)
+decoder.layers.4.norm1.weight
+tensor(0.0131, grad_fn=<SumBackward0>)
+decoder.layers.4.norm1.bias
+tensor(0.0151, grad_fn=<SumBackward0>)
+decoder.layers.4.conv1.weight
+tensor(50.7279, grad_fn=<SumBackward0>)
+decoder.layers.4.conv1.bias
+tensor(0.0137, grad_fn=<SumBackward0>)
+decoder.layers.4.norm2.weight
+tensor(0.0137, grad_fn=<SumBackward0>)
+decoder.layers.4.norm2.bias
+tensor(0.0147, grad_fn=<SumBackward0>)
+decoder.layers.4.conv2.weight
+tensor(48.3158, grad_fn=<SumBackward0>)
+decoder.layers.4.conv2.bias
+tensor(0.0114, grad_fn=<SumBackward0>)
+decoder.layers.5.norm1.weight
+tensor(0.0114, grad_fn=<SumBackward0>)
+decoder.layers.5.norm1.bias
+tensor(0.0168, grad_fn=<SumBackward0>)
+decoder.layers.5.conv1.weight
+tensor(51.8353, grad_fn=<SumBackward0>)
+decoder.layers.5.conv1.bias
+tensor(0.0134, grad_fn=<SumBackward0>)
+decoder.layers.5.norm2.weight
+tensor(0.0130, grad_fn=<SumBackward0>)
+decoder.layers.5.norm2.bias
+tensor(0.0134, grad_fn=<SumBackward0>)
+decoder.layers.5.conv2.weight
+tensor(50.7106, grad_fn=<SumBackward0>)
+decoder.layers.5.conv2.bias
+tensor(0.0117, grad_fn=<SumBackward0>)
+decoder.layers.6.conv.weight
+tensor(48.5111, grad_fn=<SumBackward0>)
+decoder.layers.6.conv.bias
+tensor(0.0125, grad_fn=<SumBackward0>)
+decoder.layers.7.norm1.weight
+tensor(0.0142, grad_fn=<SumBackward0>)
+decoder.layers.7.norm1.bias
+tensor(0.0157, grad_fn=<SumBackward0>)
+decoder.layers.7.conv1.weight
+tensor(57.2849, grad_fn=<SumBackward0>)
+decoder.layers.7.conv1.bias
+tensor(0.0157, grad_fn=<SumBackward0>)
+decoder.layers.7.norm2.weight
+tensor(0.0171, grad_fn=<SumBackward0>)
+decoder.layers.7.norm2.bias
+tensor(0.0161, grad_fn=<SumBackward0>)
+decoder.layers.7.conv2.weight
+tensor(55.3393, grad_fn=<SumBackward0>)
+decoder.layers.7.conv2.bias
+tensor(0.0133, grad_fn=<SumBackward0>)
+decoder.layers.8.norm1.weight
+tensor(0.0176, grad_fn=<SumBackward0>)
+decoder.layers.8.norm1.bias
+tensor(0.0171, grad_fn=<SumBackward0>)
+decoder.layers.8.conv1.weight
+tensor(61.5658, grad_fn=<SumBackward0>)
+decoder.layers.8.conv1.bias
+tensor(0.0155, grad_fn=<SumBackward0>)
+decoder.layers.8.norm2.weight
+tensor(0.0162, grad_fn=<SumBackward0>)
+decoder.layers.8.norm2.bias
+tensor(0.0162, grad_fn=<SumBackward0>)
+decoder.layers.8.conv2.weight
+tensor(58.5557, grad_fn=<SumBackward0>)
+decoder.layers.8.conv2.bias
+tensor(0.0133, grad_fn=<SumBackward0>)
+decoder.layers.9.conv.weight
+tensor(54.3752, grad_fn=<SumBackward0>)
+decoder.layers.9.conv.bias
+tensor(0.0154, grad_fn=<SumBackward0>)
+decoder.layers.10.norm1.weight
+tensor(0.0181, grad_fn=<SumBackward0>)
+decoder.layers.10.norm1.bias
+tensor(0.0204, grad_fn=<SumBackward0>)
+decoder.layers.10.conv1.weight
+tensor(62.4911, grad_fn=<SumBackward0>)
+decoder.layers.10.conv1.bias
+tensor(0.0167, grad_fn=<SumBackward0>)
+decoder.layers.10.norm2.weight
+tensor(0.0185, grad_fn=<SumBackward0>)
+decoder.layers.10.norm2.bias
+tensor(0.0171, grad_fn=<SumBackward0>)
+decoder.layers.10.conv2.weight
+tensor(64.0458, grad_fn=<SumBackward0>)
+decoder.layers.10.conv2.bias
+tensor(0.0169, grad_fn=<SumBackward0>)
+decoder.layers.11.norm1.weight
+tensor(0.0192, grad_fn=<SumBackward0>)
+decoder.layers.11.norm1.bias
+tensor(0.0210, grad_fn=<SumBackward0>)
+decoder.layers.11.conv1.weight
+tensor(69.9186, grad_fn=<SumBackward0>)
+decoder.layers.11.conv1.bias
+tensor(0.0191, grad_fn=<SumBackward0>)
+decoder.layers.11.norm2.weight
+tensor(0.0212, grad_fn=<SumBackward0>)
+decoder.layers.11.norm2.bias
+tensor(0.0198, grad_fn=<SumBackward0>)
+decoder.layers.11.conv2.weight
+tensor(70.1712, grad_fn=<SumBackward0>)
+decoder.layers.11.conv2.bias
+tensor(0.0169, grad_fn=<SumBackward0>)
+decoder.layers.12.conv.weight
+tensor(63.5346, grad_fn=<SumBackward0>)
+decoder.layers.12.conv.bias
+tensor(0.0180, grad_fn=<SumBackward0>)
+decoder.layers.13.norm1.weight
+tensor(0.0240, grad_fn=<SumBackward0>)
+decoder.layers.13.norm1.bias
+tensor(0.0226, grad_fn=<SumBackward0>)
+decoder.layers.13.conv1.weight
+tensor(38.8553, grad_fn=<SumBackward0>)
+decoder.layers.13.conv1.bias
+tensor(0.0109, grad_fn=<SumBackward0>)
+decoder.layers.13.norm2.weight
+tensor(0.0140, grad_fn=<SumBackward0>)
+decoder.layers.13.norm2.bias
+tensor(0.0122, grad_fn=<SumBackward0>)
+decoder.layers.13.conv2.weight
+tensor(21.3960, grad_fn=<SumBackward0>)
+decoder.layers.13.conv2.bias
+tensor(0.0099, grad_fn=<SumBackward0>)
+decoder.layers.13.shortcut_conv.weight
+tensor(3.9063, grad_fn=<SumBackward0>)
+decoder.layers.13.shortcut_conv.bias
+tensor(0.0099, grad_fn=<SumBackward0>)
+decoder.layers.14.norm1.weight
+tensor(0.0131, grad_fn=<SumBackward0>)
+decoder.layers.14.norm1.bias
+tensor(0.0177, grad_fn=<SumBackward0>)
+decoder.layers.14.conv1.weight
+tensor(25.2846, grad_fn=<SumBackward0>)
+decoder.layers.14.conv1.bias
+tensor(0.0175, grad_fn=<SumBackward0>)
+decoder.layers.14.norm2.weight
+tensor(0.0170, grad_fn=<SumBackward0>)
+decoder.layers.14.norm2.bias
+tensor(0.0160, grad_fn=<SumBackward0>)
+decoder.layers.14.conv2.weight
+tensor(26.3320, grad_fn=<SumBackward0>)
+decoder.layers.14.conv2.bias
+tensor(0.0126, grad_fn=<SumBackward0>)
+decoder.final_layers.0.weight
+tensor(0.0189, grad_fn=<SumBackward0>)
+decoder.final_layers.0.bias
+tensor(0.0122, grad_fn=<SumBackward0>)
+decoder.final_layers.2.weight
+tensor(0.5162, grad_fn=<SumBackward0>)
+decoder.final_layers.2.bias
+tensor(0.0002, grad_fn=<SumBackward0>)
+quantize.embeddings
+tensor(3.4025, grad_fn=<SumBackward0>)
+quant_conv.weight
+tensor(4.3445, grad_fn=<SumBackward0>)
+quant_conv.bias
+tensor(0.0096, grad_fn=<SumBackward0>)
+post_quant_conv.weight
+tensor(2.7206, grad_fn=<SumBackward0>)
+post_quant_conv.bias
+tensor(0.0061, grad_fn=<SumBackward0>)

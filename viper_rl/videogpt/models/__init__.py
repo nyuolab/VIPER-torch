@@ -35,13 +35,16 @@ def load_videogpt(path, transformer_config, ae_config, ae=None, replicate=True):
         class_map = None
 
     # Load model checkpoint
-    checkpoint_path = osp.join(path, 'checkpoints')
-    if osp.exists(checkpoint_path):
-        model.load_state_dict(torch.load(checkpoint_path))
+    model_files = glob.glob(f"{path}/checkpoints/*.pth")
+    if len(model_files):
+        checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
+        print("load vqgan weights from {}".format(checkpoint_path))
+        model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+
         # If replicate is True and using distributed training, replicate the model as needed
-        if replicate:
-            # Adjust this part based on your distributed training setup in PyTorch
-            pass
+        # if replicate:
+        #     # Adjust this part based on your distributed training setup in PyTorch
+        #     pass
 
     return model, class_map
 
@@ -69,7 +72,7 @@ def load_vqgan(path, ae_config):
     if len(model_files):
         checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
         print("load vqgan weights from {}".format(checkpoint_path))
-        model.load_state_dict(torch.load(checkpoint_path), strict=False)
+        model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
 
     return model, mask_map
 

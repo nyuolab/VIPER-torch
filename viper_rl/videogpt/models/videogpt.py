@@ -64,8 +64,10 @@ class VideoGPT(nn.Module):
 
     def loss(self, batch, training=True):
         embeddings = batch["embeddings"]
+        # print(embeddings)
         # print("embeddings shape is {}".format(embeddings.shape))
         encodings = batch["encodings"]
+        # print(encodings)
         # print("encodings shape is {}".format(encodings.shape))
         label = batch["label"] if "label" in batch else None
         # print("encodings shape is {}".format(label.shape))

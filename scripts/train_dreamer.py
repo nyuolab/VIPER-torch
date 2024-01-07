@@ -43,6 +43,35 @@ def make_dataset(episodes, config):
     dataset = tools.from_generator(generator, config.batch_size)
     return dataset
 
+def make_replay(
+    config, directory=None, is_eval=False, rate_limit=False, reward_model=None, **kwargs):
+    assert config.replay == 'uniform' or config.replay == 'uniform_relabel' or not rate_limit
+    length = config.batch_length
+    size = config.replay_size // 10 if is_eval else config.replay_size
+    if config.replay == 'uniform_relabel':
+        kw = {'online': config.replay_online}
+        if rate_limit and config.run.train_ratio > 0:
+        kw['samples_per_insert'] = config.run.train_ratio / config.batch_length
+        kw['tolerance'] = 10 * config.batch_size
+        kw['min_size'] = config.batch_size
+        assert reward_model is not None, 'relabel requires reward model'
+        replay = embodied.replay.UniformRelabel(
+            length, reward_model, config.uniform_relabel_add_mode, size, directory, **kw)
+    elif config.replay == 'uniform' or is_eval:
+        kw = {'online': config.replay_online}
+        if rate_limit and config.run.train_ratio > 0:
+        kw['samples_per_insert'] = config.run.train_ratio / config.batch_length
+        kw['tolerance'] = 10 * config.batch_size
+        kw['min_size'] = config.batch_size
+        replay = embodied.replay.Uniform(length, size, directory, **kw)
+    elif config.replay == 'reverb':
+        replay = embodied.replay.Reverb(length, size, directory)
+    elif config.replay == 'chunks':
+        replay = embodied.replay.NaiveChunks(length, size, directory)
+    else:
+        raise NotImplementedError(config.replay)
+    return replay
+
 
 def make_env(config, mode):
     suite, task = config.task.split("_", 1)
@@ -287,6 +316,7 @@ def main(config):
         train_dataset,
         # video_encoder=video_encoder
     ).to(config.device)
+
     agent.requires_grad_(requires_grad=False)
     if (logdir / "latest_model.pt").exists():
         print("Load weights")

@@ -140,7 +140,7 @@ def train_step(batch, state, device):
 def train(iteration, state, train_loader, config, device):
     progress = ProgressMeter(
         config.total_steps,
-        ['time', 'data'] + model.metrics
+        ['time', 'data'] + state.model.metrics
     )
 
     end = time.time()
@@ -151,7 +151,7 @@ def train(iteration, state, train_loader, config, device):
 
         state, metrics = train_step(batch, state, device)
 
-        metrics = {k: metrics[k].detach().cpu().numpy().mean() for k in model.metrics}
+        metrics = {k: metrics[k].detach().cpu().numpy().mean() for k in state.model.metrics}
         metrics = {k: v.astype(np.float32) for k, v in metrics.items()}
         progress.update(n=batch_size, **{k: v for k, v in metrics.items()})
 
@@ -170,7 +170,9 @@ def train(iteration, state, train_loader, config, device):
             torch.save({
                 'iteration': iteration,
                 'model_state_dict': state.model.vqgan.state_dict(),
-                'optimizer_state_dict': state.G_optimizer.state_dict()
+                'optimizer_state_dict': state.G_optimizer.state_dict(),
+                'disc_state_dict': state.model.disc.state_dict(),
+                'D_optimizer_state_dict': state.D_optimizer.state_dict(),
             }, save_path)
             print('Saved checkpoint to', save_path)
             print('Saved checkpoint at iteration', iteration)
@@ -211,9 +213,9 @@ def visualize(iteration, state, test_loader, device):
     images = batch['image'].to(device)
 
     # Perform reconstruction using the model
-    model.eval()  # Set the model to evaluation mode
+    state.model.eval()  # Set the model to evaluation mode
     # with torch.no_grad():
-    recon = viz_step(images, model)  # Replace 'viz_step' with your model's method
+    recon = viz_step(images, state.model)  # Replace 'viz_step' with your model's method
 
     # Prepare images for visualization
     images_np = images.cpu().numpy().reshape(-1, *images.shape[2:])

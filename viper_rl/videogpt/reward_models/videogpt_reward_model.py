@@ -4,6 +4,7 @@ import pickle
 import functools
 import numpy as np
 import torch
+# import torch.nn as nn
 import torch.nn.functional as F
 import tqdm
 import argparse
@@ -29,11 +30,11 @@ class InvalidSequenceError(Exception):
 
 class VideoGPTRewardModel:
 
-    PRIVATE_LIKELIHOOD_KEY = 'log_immutable_density'
+    PRIVATE_LIKELIHOOD_KEY = 'logimmutabledensity'
     PUBLIC_LIKELIHOOD_KEY = 'density'
 
     def __init__(self, task: str, 
-                 ae_config, transformer_config,
+                 ae_config, config,
                  vqgan_path: str, videogpt_path: str,
                  camera_key: str='image',
                  reward_scale: Optional[Union[Dict[str, Tuple], Tuple]]=None,
@@ -70,8 +71,9 @@ class VideoGPTRewardModel:
         self.device = reward_model_device
         print(f'Reward model devices: {self.device}')
         self.ae = AE(path=vqgan_path, ae_config=ae_config)
-        self.ae = self.ae.to(self.device)
-        self.model, self.class_map = load_videogpt(videogpt_path, transformer_config=transformer_config, ae_config=ae_config, ae=self.ae, replicate=False)
+        self.ae.ae = self.ae.ae.to(self.device)
+        self.model, self.class_map = load_videogpt(videogpt_path, config=config, ae_config=ae_config, ae=self.ae, replicate=False)
+        # print(self.class_map)
         config = self.model.config
         self.sampler = sampler.VideoGPTSampler(self.model)
         self.model = self.model.to(self.device)
@@ -158,14 +160,14 @@ class VideoGPTRewardModel:
         else:
             return all_samples.numpy()
         
-    @torch.jit.script
+
     def _compute_likelihood(self, embeddings, encodings, label):
-        print(f'Tracing likelihood: Original embeddings shape: {embeddings.shape}, Encodings shape: {encodings.shape}')
+        # print(f'Tracing likelihood: Original embeddings shape: {embeddings.shape}, Encodings shape: {encodings.shape}')
         if self.n_skip > 1:
             encodings = encodings[:, self.n_skip - 1::self.n_skip]
             embeddings = embeddings[:, self.n_skip - 1::self.n_skip]
             print(f'\tAfter applying frame skip: Embeddings shape: {embeddings.shape}, Encodings shape: {encodings.shape}')
-
+        # print(label)
         # Assuming the log_prob method is implemented in your PyTorch model
         likelihoods = self.model.log_prob(embeddings, encodings, label=label, reduce_sum=self.nll_reduce_sum)
 
@@ -176,9 +178,9 @@ class VideoGPTRewardModel:
 
         return ll
     
-    @torch.jit.script
+
     def _compute_likelihood_for_initial_elements(self, embeddings, encodings, label):
-        print(f'Tracing init frame likelihood: Embeddings shape: {embeddings.shape}, Encodings shape: {encodings.shape}')
+        # print(f'Tracing init frame likelihood: Embeddings shape: {embeddings.shape}, Encodings shape: {encodings.shape}')
         if self.n_skip > 1:
             first_encodings = torch.cat([encodings[:1, i::self.n_skip] for i in range(self.n_skip)], dim=0)
             first_embeddings = torch.cat([embeddings[:1, i::self.n_skip] for i in range(self.n_skip)], dim=0)
@@ -195,7 +197,7 @@ class VideoGPTRewardModel:
         else:
             ll = likelihoods[0, :-1]
         if self.compute_joint:
-            ll = torch.cumsum(ll, dim=0) / torch.arange(1, ll.shape[0] + 1, dtype=ll.dtype).unsqueeze(1)
+            ll = torch.cumsum(ll, dim=0) / torch.arange(1, len(ll) + 1).to(self.device)
         return ll
 
     
@@ -209,67 +211,80 @@ class VideoGPTRewardModel:
         else:
             return reward
     
-    def compute_reward(self, seq: List[Dict[str, Any]]):
+    def compute_reward(self, seq):
         """Use VGPT model to compute likelihoods for input sequence.
         Args:
             seq: Input sequence of states.
         Returns:
             seq: Input sequence with additional keys in the state dict.
         """
-        if len(seq) < self.seq_len_steps:
-            raise InvalidSequenceError(f'Input sequence must be at least {self.seq_len_steps} steps long. Seq len is {len(seq)}')
-        label = self.task_id if self.class_cond else None
+        l = len(seq[self.camera_key])
 
+        seq[VideoGPTRewardModel.PRIVATE_LIKELIHOOD_KEY] = [0] * l
+
+        if l < self.seq_len_steps:
+            raise InvalidSequenceError(f'Input sequence must be at least {self.seq_len_steps} steps long. Seq len is {l}')
+        label = self.task_id if self.class_cond else None
+        # print(label)
         # Where in sequence to start computing likelihoods. Don't perform redundant likelihood computations.
+        # start_idx = 0
+        # for i in range(self.seq_len_steps - 1, l):
+        #     # if not self.is_step_processed(seq[i]):
+        #         start_idx = i
+        #         break
+        # start_idx = int(max(start_idx - self.seq_len_steps + 1, 0))
+
         start_idx = 0
-        for i in range(self.seq_len_steps - 1, len(seq)):
-            if not self.is_step_processed(seq[i]):
-                start_idx = i
-                break
-        start_idx = int(max(start_idx - self.seq_len_steps + 1, 0))
-        T = len(seq) - start_idx
+        T = l - start_idx
 
         # Compute encodings and embeddings for image sequence.
-        image_batch = torch.stack([seq[i][self.camera_key] for i in range(start_idx, len(seq))])
+        # image_batch = torch.stack([seq[i][self.camera_key] for i in range(start_idx, l)])
+        image_batch = np.stack(seq[self.camera_key][start_idx:])
+        # print(image_batch.shape)
         image_batch = self.process_images(image_batch)
         encodings = self.ae.encode(torch.unsqueeze(image_batch, 0))
-        embeddings = self.ae.codebook_lookup(encodings)
+        embeddings = self.ae.lookup(encodings)
         encodings, embeddings = encodings[0], embeddings[0]
 
         # Compute batch of encodings and embeddings for likelihood computation.
         idxs = list(range(T - self.seq_len + 1))
         batch_encodings = [encodings[idx:(idx + self.seq_len)] for idx in idxs]
         batch_embeddings = [embeddings[idx:(idx + self.seq_len)] for idx in idxs]
-        batch_encodings = batch_encodings.to(self.device)
-        batch_embeddings = torch.stack(batch_embeddings).to(self.device)
+        batch_encodings = torch.stack(batch_encodings) # .to(self.device)
+        batch_embeddings = torch.stack(batch_embeddings) # .to(self.device)
 
         rewards = []
         for i in range(0, len(idxs), self.minibatch_size):
-            mb_encodings = batch_encodings[i:(i + self.minibatch_size)]
-            mb_embeddings = batch_embeddings[i:(i + self.minibatch_size)]
-            mb_label = self.expand_scalar(label, mb_encodings.shape[0], torch.int32)
-            rewards.append(self._compute_likelihood(mb_embeddings, mb_encodings, mb_label.detach()))
-        rewards = torch.cat(rewards, dim=0)
-        if len(rewards.shape) <= 1:
+            mb_encodings = batch_encodings[i: i+self.minibatch_size]
+            mb_embeddings = batch_embeddings[i: i+self.minibatch_size]
+            mb_label = self.expand_scalar(label, mb_encodings.shape[0], torch.int64)
+            reward = self._compute_likelihood(mb_embeddings, mb_encodings, mb_label) # .detach().cpu().numpy()
+            rewards.append(reward)
+            # print(reward.shape)
+        # print(len(rewards))
+        # progress
+        rewards = torch.cat(rewards, dim=0).detach().cpu().numpy()
+        # print(rewards.shape)
+        if len(rewards) <= 1:
             rewards = self._reward_scaler(rewards)
         assert len(rewards) == (T - self.seq_len_steps + 1), f'{len(rewards)} != {T - self.seq_len_steps + 1}'
         for i, rew in enumerate(rewards):
             idx = start_idx + self.seq_len_steps - 1 + i
-            assert not self.is_step_processed(seq[idx])
-            seq[idx][VideoGPTRewardModel.PRIVATE_LIKELIHOOD_KEY] = rew
+            # assert not self.is_step_processed(seq[idx])
+            seq[VideoGPTRewardModel.PRIVATE_LIKELIHOOD_KEY][idx] = rew
 
-        if seq[0]['is_first']:
+        if seq['is_first'][0]:
             first_encodings = batch_encodings[:1]
             first_embeddings = batch_embeddings[:1]
             first_label = self.expand_scalar(label, first_encodings.shape[0], torch.int32)
             first_rewards = self._compute_likelihood_for_initial_elements(
-                first_embeddings, first_encodings, first_label).detach()
+                first_embeddings, first_encodings, first_label).detach().cpu().numpy()
             if len(first_rewards.shape) <= 1:
                 first_rewards = self._reward_scaler(first_rewards)
             assert len(first_rewards) == self.seq_len_steps - 1, f'{len(first_rewards)} != {self.seq_len_steps - 1}'
             for i, rew in enumerate(first_rewards):
-                assert not self.is_step_processed(seq[i]), f'Step {i} already processed'
-                seq[i][VideoGPTRewardModel.PRIVATE_LIKELIHOOD_KEY] = rew
+                # assert not self.is_step_processed(seq[i]), f'Step {i} already processed'
+                seq[VideoGPTRewardModel.PRIVATE_LIKELIHOOD_KEY][i] = rew
 
         return seq
 
@@ -287,16 +302,20 @@ class VideoGPTRewardModel:
         return True
 
     def process_images(self, image_batch):
+        if image_batch.shape[-1] <= 3:
+            image_batch = np.transpose(image_batch, (0, 3, 1, 2))
         image_batch = torch.tensor(image_batch, dtype=torch.uint8).to(self.device)
+        # if image_batch.shape[-1] <= 3:
+        #     image_batch = torch.permute(image_batch, (0, 3, 1, 2))
         image_batch = image_batch * self.mask if self.mask is not None else image_batch
         return image_batch.float() / 127.5 - 1.0
 
     def process_seq(self, seq):
-        for step in seq:
-            if not self.is_step_processed(step):
-                continue
-            step[VideoGPTRewardModel.PUBLIC_LIKELIHOOD_KEY] = step[VideoGPTRewardModel.PRIVATE_LIKELIHOOD_KEY]
-        return seq[self.seq_len_steps - 1:]
+        # for step in seq:
+        #     if not self.is_step_processed(step):
+        #         continue
+        seq[VideoGPTRewardModel.PUBLIC_LIKELIHOOD_KEY] = seq[VideoGPTRewardModel.PRIVATE_LIKELIHOOD_KEY]
+        return seq # [self.seq_len_steps - 1:]
     
     
 

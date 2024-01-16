@@ -72,7 +72,8 @@ def main():
 
     batch = next(iter(train_loader))
     # print(batch.keys())
-    batch = ae.prepare_batch(batch)
+    with torch.no_grad():
+        batch = ae.prepare_batch(batch)
     batch = get_first_device(batch)
     
     model = VideoGPT(config, ae)

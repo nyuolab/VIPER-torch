@@ -183,8 +183,7 @@ def eval_rollout(
     results = [r() for r in results]
 
     save_image(results[0]['image'], logger._logdir, agent._config.task + "/real_imgs/0.jpg".format())
-    save_image(results[0]['image'], logger._logdir, agent._config.task + "/fake_imgs/0.jpg".format())  
-
+    save_image(results[0]['image'], logger._logdir, agent._config.task + "/fake_imgs/0.jpg".format())
 
     initial_states = results.copy()
     
@@ -354,7 +353,7 @@ def simulate(
     state=None,
 ):
     # initialize or unpack simulation state
-    # video_encoder = agent.func.video_encoder if is_eval else agent.video_encoder
+    reward_model = agent.func.reward_model if is_eval else agent.reward_model
     # video_len = agent.func._config.video_len if is_eval else agent._config.video_len 
     if state is None:
         step, episode = 0, 0
@@ -375,6 +374,7 @@ def simulate(
     
     while (steps and step < steps) or (episodes and episode < episodes):
         # reset all terminated envs
+        # print("Doing step {}".format(step))
         if done.any():
             indices = [index for index, d in enumerate(done) if d] # indices of terminated envs
             
@@ -398,9 +398,16 @@ def simulate(
                 add_to_cache(cache, envs[index].id, t)
                 # replace obs with done by initial state
                 obs[index] = result
-        
-        obs_dict = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
-        action, agent_state = agent(obs_dict, done, agent_state)
+            
+            obs_dict = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}    
+            action, agent_state = agent(obs_dict, done, agent_state, training=not is_eval, train=True)
+        else:
+            obs_dict = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
+            action, agent_state = agent(obs_dict, done, agent_state, training=not is_eval, train=False)
+
+        # obs_dict = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}    
+        # action, agent_state = agent(obs_dict, done, agent_state, training=not is_eval, train=True)
+    
 
         
         # action: dict(action_dim_list(torch.tensor(len(envs) * one hot actions)))
@@ -645,15 +652,31 @@ def simulate(
             indices = [index for index, d in enumerate(done) if d]
             # logging for done episode
             for i in indices:
-                save_episodes(directory, {envs[i].id: cache[envs[i].id]})
                 length = len(cache[envs[i].id]["reward"]) - 1
                 score = float(np.array(cache[envs[i].id]["reward"]).sum())
                 video = cache[envs[i].id]["image"]
+                # print("The cache length is {}".format(len(cache[envs[i].id]["image"])))
+                # print("The number of images is {}".format(len(video)))
+                # print("The length of reward seq is {}".format(len(cache[envs[i].id]["reward"])))
 
+                if reward_model is not None and (not is_eval):
+                    # print(cache[envs[i].id]["reward"])
+                    with torch.no_grad():
+                        cache[envs[i].id] = reward_model(cache[envs[i].id])
+                    # print("The length of density seq is {}".format(len(cache[envs[i].id]["density"])))
+                # print(cache[envs[i].id].keys())
                 # print("The inventory variants are {}".format(cache[envs[i].id]["log_inventory/variant"]))
                 # print("The equipped variants are {}".format(cache[envs[i].id]["log_equipment/variant"]))
                 # record logs given from environments
                 # variant_dict = {}
+
+                save_episodes(directory, {envs[i].id: cache[envs[i].id]})
+
+                if reward_model and not is_eval:
+                    if 'density' not in cache[envs[i].id].keys():
+                        raise Exception("Has to have density for complete trajectories")
+                    else:
+                        print("Complete trajectory with density")
 
                 for key in list(cache[envs[i].id].keys()):
                     if "log_" in key:
@@ -696,13 +719,61 @@ def simulate(
                         logger.write(step=logger.step)
                         eval_done = True
 
-        
+    if not is_eval:
+        if not done.any():
+            indices = [index for index, d in enumerate(done) if not d]
+            # logging for done episode
+            for i in indices:
+                length = len(cache[envs[i].id]["reward"]) - 1
+                score = float(np.array(cache[envs[i].id]["reward"]).sum())
+                video = cache[envs[i].id]["image"]
 
-    if is_eval:
+                if reward_model is not None:
+                    # print(cache[envs[i].id]["reward"])
+                    with torch.no_grad():
+                        cache[envs[i].id] = reward_model(cache[envs[i].id])
+                    # print(cache[envs[i].id]["density"])
+                # print(cache[envs[i].id].keys())
+                # print("The inventory variants are {}".format(cache[envs[i].id]["log_inventory/variant"]))
+                # print("The equipped variants are {}".format(cache[envs[i].id]["log_equipment/variant"]))
+                # record logs given from environments
+                # variant_dict = {}
+                save_episodes(directory, {envs[i].id: cache[envs[i].id]})
+
+                if reward_model and 'density' not in cache[envs[i].id].keys():
+                    raise Exception("Has to have density for incomplete trajectories")
+                else:
+                    print("Incomplete trajectory with density")
+
+
+                for key in list(cache[envs[i].id].keys()):
+                    if "log_" in key:
+                        logger.scalar(
+                            key, float(np.array(cache[envs[i].id][key]).sum())
+                            # key, list(cache[envs[i].id][key])
+                        )
+                        # variant_dict[key] = np.array(cache[envs[i].id][key]).flatten().tolist()
+                        # print("{}: {}".format(key, cache[envs[i].id][key]))
+                        # log items won't be used later
+                        cache[envs[i].id].pop(key)
+            
+                # with open("logdir/minecraft_diamond/metrics.jsonl", "a") as f:
+                #     json.dump(variant_dict, f)
+
+                step_in_dataset = erase_over_episodes(cache, limit)
+                logger.scalar(f"dataset_size", step_in_dataset)
+                logger.scalar(f"train_return", score)
+                logger.scalar(f"train_length", length)
+                logger.scalar(f"train_episodes", len(cache))
+                logger.write(step=logger.step) 
+        else:
+            print("All trajectories done for this episode")
+    else:
         # keep only last item for saving memory. this cache is used for video_pred later
         while len(cache) > 1:
             # FIFO
             cache.popitem(last=False)
+            
     return (step - steps, episode - episodes, done, length, obs, agent_state, reward)
 
 
@@ -776,6 +847,7 @@ def add_to_cache(cache, id, transition):
 
 def erase_over_episodes(cache, dataset_size):
     step_in_dataset = 0
+    # print(cache[list(cache.keys())[-1]].keys())
     for key, ep in reversed(sorted(cache.items(), key=lambda x: x[0])):
         if (
             not dataset_size
@@ -784,6 +856,7 @@ def erase_over_episodes(cache, dataset_size):
             step_in_dataset += len(ep["reward"]) - 1
         else:
             del cache[key]
+    # print(cache.keys())
     return step_in_dataset
 
 
@@ -834,6 +907,9 @@ def from_generator(generator, batch_size):
 
 def sample_episodes(episodes, length, seed=0):
     np_random = np.random.RandomState(seed)
+    # print(episodes['20240115T032602-a2ac21d75bdd4c6ca13477a3b708b295-501'].keys())
+    # print(episodes.keys())
+
     while True:
         size = 0
         ret = None
@@ -841,12 +917,20 @@ def sample_episodes(episodes, length, seed=0):
             [len(next(iter(episode.values()))) for episode in episodes.values()]
         )
         p = p / np.sum(p)
+        
+        err_count = 0.0
+        count = 0
         while size < length:
+            count += 1
             episode = np_random.choice(list(episodes.values()), p=p)
+            # print("episode keys: {}".format(episode.keys()))
             total = len(next(iter(episode.values())))
             # make sure at least one transition included
             if total < 2:
                 continue
+            # if "density" not in episode.keys():
+            #     err_count += 1
+            #     continue
             if not ret:
                 index = int(np_random.randint(0, total - 1))
                 ret = {
@@ -872,14 +956,17 @@ def sample_episodes(episodes, length, seed=0):
                 # ret = ret_new
                 ret = {
                     k: np.append(
-                        ret[k], v[index : min(index + possible, total)], axis=0
+                        ret[k], v[index : min(index+possible, total)], axis=0
                     )
                     for k, v in episode.items()
                     if "log_" not in k
                 }
                 if "is_first" in ret:
                     ret["is_first"][size] = True
+            # print("ret keys: {}".format(ret.keys()))
             size = len(next(iter(ret.values())))
+        # if err_count > 0:
+        #     print("missing keys occurrence frequency for this batch: {}".format(err_count/count))
         yield ret
 
 

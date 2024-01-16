@@ -15,14 +15,15 @@ def extract_iteration(filename):
     match = re.search(r"checkpoint_(\d+).pth", filename)
     return int(match.group(1)) if match else 0
 
-def load_videogpt(path, transformer_config, ae_config, ae=None, replicate=True):
+def load_videogpt(path, config, ae_config, ae=None, replicate=True):
     # Load configuration
-    config = pickle.load(open(osp.join(path, 'args'), 'rb'))
+    # config = pickle.load(open(osp.join(path, 'args'), 'rb'))
     
     # Initialize the AE model if not provided
     if ae is None:
         ae = AE(config.ae_ckpt, ae_config)  # Adjust AE initialization as per your PyTorch implementation
-
+    
+    # config.ae = ae_config
     # Initialize the VideoGPT model
     model = VideoGPT(config, ae)
 
@@ -38,7 +39,7 @@ def load_videogpt(path, transformer_config, ae_config, ae=None, replicate=True):
     model_files = glob.glob(f"{path}/checkpoints/*.pth")
     if len(model_files):
         checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
-        print("load vqgan weights from {}".format(checkpoint_path))
+        print("load videogpt weights from {}".format(checkpoint_path))
         model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
 
         # If replicate is True and using distributed training, replicate the model as needed

@@ -4,10 +4,10 @@ from torch import nn
 import numpy as np
 from PIL import ImageColor, Image, ImageDraw, ImageFont
 
-import networks
-import tools
+import viper_rl.dreamerv3.networks as networks
+import viper_rl.dreamerv3.tools as tools
 
-from ding.reward_model.rnd_reward_model import RndRewardModel
+# from ding.reward_model.rnd_reward_model import RndRewardModel
 
 to_np = lambda x: x.detach().cpu().numpy()
 
@@ -76,6 +76,14 @@ class WorldModel(nn.Module):
         self.heads["decoder"] = networks.MultiDecoder(
             feat_size, shapes, config.device, **config.decoder
         )
+        if config.task_behavior == "prior" or config.expl_behavior == "prior":
+            self.heads["density"] = networks.MLP(
+                feat_size, 
+                (255,),
+                **config.density_head, 
+                name="density",
+            )
+
         # reward predictor p(r|h,z)
         if config.reward_head == "symlog_disc":
             self.heads["reward"] = networks.MLP(
@@ -113,6 +121,21 @@ class WorldModel(nn.Module):
             dist="binary",
             device=config.device,
         )
+
+        self.amp = (config.task_behavior == "MotionPrior") or (
+            config.expl_behavior == "MotionPrior"
+        )
+        if self.amp:
+            self.discriminator = networks.Discriminator(
+                shapes, **config.discriminator, name="discriminator"
+            )
+            self.heads["discriminator_reward"] = networks.MLP(
+                feat_size, 
+                [], 
+                **config.discriminator_head, 
+                name="discriminator_head"
+            )
+
         for name in config.grad_heads:
             assert name in self.heads, name
         self._model_opt = tools.Optimizer(
@@ -166,12 +189,13 @@ class WorldModel(nn.Module):
             self.rnd_model = RndRewardModel(self.rnd_cfg, self._config.device)
             self.rnd_model.reward_model.apply(tools.weight_init)
 
-    def _train(self, data):
+    def _train(self, data, reference_data=None):
         # action (batch_size, batch_length, act_dim)
         # image (batch_size, batch_length, h, w, ch)
         # reward (batch_size, batch_length)
         # discount (batch_size, batch_length)
         data = self.preprocess(data)
+        # print(data.keys())
 
         with tools.RequiresGrad(self):
             with torch.cuda.amp.autocast(self._use_amp):
@@ -188,6 +212,8 @@ class WorldModel(nn.Module):
                 )
                 preds = {}
                 for name, head in self.heads.items():
+                    if name == "discriminator_reward":
+                        continue
                     grad_head = name in self._config.grad_heads
                     feat = self.dynamics.get_feat(post)
                     feat = feat if grad_head else feat.detach()
@@ -196,11 +222,109 @@ class WorldModel(nn.Module):
                         preds.update(pred)
                     else:
                         preds[name] = pred
+                
                 losses = {}
                 for name, pred in preds.items():
                     like = pred.log_prob(data[name])
                     losses[name] = -torch.mean(like) * self._scales.get(name, 1.0)
+                
+
+                # additional_metrics = {}
+
+                # if self.amp:
+                #     idxs = list(
+                #         range(reference_data["is_first"].shape[1] - self.config.amp_window)
+                #     )
+                #     amp_data_stacks = {}
+                #     amp_reference_data_stacks = {}
+                #     for k, v in data.items():
+                #         if k in self.discriminator.shapes:
+                #             amp_data_stacks[k] = jnp.stack(
+                #                 [
+                #                     v[:, idx : (idx + self.config.amp_window)].astype(
+                #                         jnp.float32
+                #                     )
+                #                     for idx in idxs
+                #                 ],
+                #                 axis=1,
+                #             )
+                #     for k, v in reference_data.items():
+                #         if k in self.discriminator.shapes:
+                #             amp_reference_data_stacks[k] = torch.stack(
+                #                 [
+                #                     v[:, idx:(idx+self.config.amp_window)].float()
+                #                     for idx in idxs
+                #                 ],
+                #                 dim=1
+                #             )
+                #     amp_batch_dims = amp_data_stacks[list(amp_data_stacks.keys())[0]].shape[:2]
+                #     amp_data_stacks = jax.tree_util.tree_map(
+                #         lambda x: x.reshape((-1,) + x.shape[len(amp_batch_dims) :]),
+                #         amp_data_stacks,
+                #     )
+                #     amp_reference_data_stacks = jax.tree_util.tree_map(
+                #         lambda x: x.reshape((-1,) + x.shape[len(amp_batch_dims) :]),
+                #         amp_reference_data_stacks,
+                #     )
+                #     with torch.no_grad():
+                #         policy_d = self.discriminator(amp_data_stacks)
+                #     reference_d, reference_d_grad = jax.vmap(
+                #         jax.value_and_grad(self.discriminator, has_aux=False)
+                #     )(sg(amp_reference_data_stacks))
+                #     loss = lambda x, y: (x - y) ** 2
+                #     reference_labels, policy_labels = jnp.ones_like(
+                #         reference_d
+                #     ), -1 * jnp.ones_like(policy_d)
+                #     loss_reference = loss(reference_labels, reference_d)
+                #     loss_policy = loss(policy_labels, policy_d)
+                #     loss_disc = 0.5 * (loss_reference + loss_policy)
+
+                #     # Gradient penalty.
+                #     reference_d_grad = jax.tree_util.tree_map(
+                #         lambda x: jnp.square(x), reference_d_grad
+                #     )
+                #     reference_d_grad = jax.tree_util.tree_map(
+                #         lambda x: jnp.sum(x, axis=np.arange(1, len(x.shape))), reference_d_grad
+                #     )
+                #     reference_d_grad = jax.tree_util.tree_reduce(
+                #         lambda x, y: x + y, reference_d_grad
+                #     )
+                #     loss_gp = 2.5 * reference_d_grad / self.config.amp_window
+                #     losses["mp_amp"] = loss_disc
+                #     losses["mp_amp_gp"] = loss_gp
+
+                #     # Update discriminator head.
+                #     policy_d = jax.tree_util.tree_map(
+                #         lambda x: x.reshape(amp_batch_dims), policy_d
+                #     )
+                #     feats_new = {k: v[:, self.config.amp_window :] for k, v in feats.items()}
+                #     discriminator_rewards = jnp.clip(
+                #         1 - (1.0 / 4.0) * jnp.square(policy_d - 1), -2, 2
+                #     )
+                #     discriminator_reward_dist = self.heads["discriminator_reward"](
+                #         feats_new
+                #         if "discriminator_reward" in self.config.grad_heads
+                #         else sg(feats_new)
+                #     )
+                #     losses["discriminator_reward"] = -discriminator_reward_dist.log_prob(
+                #         discriminator_rewards.astype(jnp.float32)
+                #     )
+
+                #     metrics.update(
+                #         {
+                #             "mp_logits_reference_mean": reference_d.mean(),
+                #             "mp_logits_reference_std": reference_d.std(),
+                #             "mp_logits_policy_mean": policy_d.mean(),
+                #             "mp_logits_policy_std": policy_d.std(),
+                #             "mp_loss_reference_mean": loss_reference.mean(),
+                #             "mp_loss_reference_std": loss_reference.std(),
+                #             "mp_loss_policy_mean": loss_policy.mean(),
+                #             "mp_loss_policy_std": loss_policy.std(),
+                #         }
+                #     )
+
                 model_loss = sum(losses.values()) + kl_loss
+
             metrics = self._model_opt(model_loss, self.parameters())
 
         metrics.update({f"{name}_loss": to_np(loss) for name, loss in losses.items()})
@@ -505,7 +629,7 @@ class ImagBehavior(nn.Module):
             feat = dynamics.get_feat(state)
             inp = feat.detach() if self._stop_grad_actor else feat
             # actionhead takes in z+h and outputs action
-            action = actor(inp).sample(flatten=True)
+            action = actor(inp).sample()
             if isinstance(action, list):
                 action = torch.cat(action, dim=-1)
             # print(action.shape)f

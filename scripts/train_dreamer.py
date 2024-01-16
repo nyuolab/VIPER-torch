@@ -9,14 +9,18 @@ os.environ["MUJOCO_GL"] = "osmesa"
 import numpy as np
 import ruamel.yaml as yaml
 
-sys.path.append(str(pathlib.Path(__file__).parent))
+directory = pathlib.Path(__file__).resolve()
+directory = directory.parent
+sys.path.append(str(directory.parent))
+#sys.path.append(str(pathlib.Path(__file__).parent))
 
 import viper_rl.dreamerv3.exploration as expl
-import viper_rl.dreamerv3.models
-import viper_rl.dreamerv3.tools
+import viper_rl.dreamerv3.models as models
+import viper_rl.dreamerv3.tools as tools
 import viper_rl.dreamerv3.envs.wrappers as wrappers
 from viper_rl.dreamerv3.dreamer import Dreamer
-from parallel import Parallel, Damy
+from viper_rl.dreamerv3.parallel import Parallel, Damy
+
 
 import torch
 from torch import nn
@@ -25,7 +29,7 @@ from torch import distributions as torchd
 import torch
 import torch.distributed as dist
 
-dist.init_process_group(backend='nccl')
+# dist.init_process_group(backend='nccl')
 
 from gym.spaces import MultiDiscrete
 # from vmae_encoder import VMAEEncoder
@@ -33,44 +37,14 @@ from gym.spaces import MultiDiscrete
 to_np = lambda x: x.detach().cpu().numpy()
 
 
-
 def count_steps(folder):
     return sum(int(str(n).split("-")[-1][:-4]) - 1 for n in folder.glob("*.npz"))
 
 
 def make_dataset(episodes, config):
-    generator = tools.sample_episodes(episodes, config.batch_length)
+    generator = tools.sample_episodes(episodes, config.batch_length, seed=config.seed)
     dataset = tools.from_generator(generator, config.batch_size)
     return dataset
-
-def make_replay(
-    config, directory=None, is_eval=False, rate_limit=False, reward_model=None, **kwargs):
-    assert config.replay == 'uniform' or config.replay == 'uniform_relabel' or not rate_limit
-    length = config.batch_length
-    size = config.replay_size // 10 if is_eval else config.replay_size
-    if config.replay == 'uniform_relabel':
-        kw = {'online': config.replay_online}
-        if rate_limit and config.run.train_ratio > 0:
-        kw['samples_per_insert'] = config.run.train_ratio / config.batch_length
-        kw['tolerance'] = 10 * config.batch_size
-        kw['min_size'] = config.batch_size
-        assert reward_model is not None, 'relabel requires reward model'
-        replay = embodied.replay.UniformRelabel(
-            length, reward_model, config.uniform_relabel_add_mode, size, directory, **kw)
-    elif config.replay == 'uniform' or is_eval:
-        kw = {'online': config.replay_online}
-        if rate_limit and config.run.train_ratio > 0:
-        kw['samples_per_insert'] = config.run.train_ratio / config.batch_length
-        kw['tolerance'] = 10 * config.batch_size
-        kw['min_size'] = config.batch_size
-        replay = embodied.replay.Uniform(length, size, directory, **kw)
-    elif config.replay == 'reverb':
-        replay = embodied.replay.Reverb(length, size, directory)
-    elif config.replay == 'chunks':
-        replay = embodied.replay.NaiveChunks(length, size, directory)
-    else:
-        raise NotImplementedError(config.replay)
-    return replay
 
 
 def make_env(config, mode):
@@ -139,9 +113,14 @@ def make_env(config, mode):
     # env = wrappers.RewardObs(env)
     return env
 
+class dict2obj:
+    def __init__(self, data):
+        for key, value in data.items():
+            setattr(self, key, value)
+
 
 def main(config):
-    is_master_process = dist.get_rank() == 0
+    # is_master_process = dist.get_rank() == 0
 
     tools.set_seed_everywhere(config.seed)
     if config.deterministic_run:
@@ -154,6 +133,10 @@ def main(config):
     config.eval_every //= config.action_repeat
     config.log_every //= config.action_repeat
     config.time_limit //= config.action_repeat
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    config.device = device
 
     # if is_master_process:
     #     wandb.init(project='dreamer', config=config,
@@ -183,21 +166,30 @@ def main(config):
     # step in logger is environmental step
     logger = tools.Logger(logdir, config.action_repeat * step)
 
+    # config.transformer = dict2obj(config.transformer)
+    # transformer_config = yaml.safe_load(
+    #     (pathlib.Path(sys.argv[0]).parent.parent / "viper_rl/configs/videogpt/dmc.yaml").read_text()
+    # )
+    transformer_config = dict2obj(yaml.safe_load(open("viper_rl/configs/videogpt/dmc.yaml", 'r')))
+
+    transformer_config.device = device
+    
+
     if config.reward_model != 'none':
         print(f'Loading reward model {config.reward_model}')
         from viper_rl.videogpt.reward_models import LOAD_REWARD_MODEL_DICT
         reward_model = LOAD_REWARD_MODEL_DICT[config.reward_model](
         task=config.task,
         ae_config=config.ae,
-        transformer_config=config.transformer,
+        config=transformer_config,
         compute_joint=config.reward_model_compute_joint,
         minibatch_size=config.reward_model_batch_size,
         encoding_minibatch_size=config.reward_model_batch_size,
-        reward_model_device=config.device)
+        reward_model_device=config.device) # "cpu"
     else:
         reward_model = None
 
-    replay_kwargs = {'reward_model': reward_model}
+    # replay_kwargs = {'reward_model': reward_model}
     
     print("Create envs.")
     if config.offline_traindir:
@@ -273,13 +265,14 @@ def main(config):
             )
 
         class RandomAgent(object):
-            def __init__(self, config): # video_encoder=None):
+            def __init__(self, config, reward_model): # video_encoder=None):
                 super(RandomAgent, self).__init__()
+                self.reward_model = reward_model
                 # self.video_encoder = video_encoder
                 self._config = config
             
-            def __call__(self, o, d, state):
-                action = random_actor.sample(flatten=False)
+            def __call__(self, o, d, state, training, train):
+                action = random_actor.sample()
                 logprob = random_actor.log_prob(action)
                 return {"action": action, "logprob": logprob}, None
 
@@ -288,7 +281,9 @@ def main(config):
         #     logprob = random_actor.log_prob(action)
         #     return {"action": action, "logprob": logprob}, None
         # random_agent = RandomAgent(config, video_encoder)
-        random_agent = RandomAgent(config)
+        random_agent = RandomAgent(config, reward_model)
+
+        print("Start burning in random trajectories")
 
         state = tools.simulate(
             random_agent,
@@ -314,6 +309,7 @@ def main(config):
         config,
         logger,
         train_dataset,
+        reward_model=reward_model,
         # video_encoder=video_encoder
     ).to(config.device)
 
@@ -338,9 +334,9 @@ def main(config):
                 is_eval=True,
                 episodes=config.eval_episode_num,
             )
-            if config.video_pred_log:
-                video_pred = agent._wm.video_pred(next(eval_dataset))
-                logger.video("eval_openl", to_np(video_pred))
+            # if config.video_pred_log:
+            #     video_pred = agent._wm.video_pred(next(eval_dataset))
+            #     logger.video("eval_openl", to_np(video_pred))
         
         # Checkpoint for minedojo
         print("Start training.")
@@ -352,7 +348,8 @@ def main(config):
             logger,
             limit=config.dataset_size,
             steps=config.eval_every,
-            state=state,
+            state=state, 
+            # train=True, 
         )
         # if config.ddp:
         #     torch.save(agent.module.state_dict(), logdir / "latest_model.pt")
@@ -373,12 +370,13 @@ def main(config):
 
 if __name__ == "__main__":
     print("The number of available gpus is {}".format(torch.cuda.device_count()))
+    print("The number of available cpus is {}".format(os.cpu_count()))
     parser = argparse.ArgumentParser()
     parser.add_argument("--configs", nargs="+")
     args, remaining = parser.parse_known_args()
     
     configs = yaml.safe_load(
-        (pathlib.Path(sys.argv[0]).parent / "viper_rl/configs/dreamer/configs.yaml").read_text()
+        (pathlib.Path(sys.argv[0]).parent.parent / "viper_rl/configs/dreamer/configs.yaml").read_text()
     )
 
     def recursive_update(base, update):

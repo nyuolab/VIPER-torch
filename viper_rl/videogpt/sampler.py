@@ -63,4 +63,4 @@ class VideoGPTSampler:
         if decode:
             samples = self.ae.decode(samples) * 0.5 + 0.5
 
-        return samples.detach.cpu()
+        return samples.detach().cpu()

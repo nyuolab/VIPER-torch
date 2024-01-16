@@ -120,6 +120,7 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
 
     N = num_data_local
     batch_size = config.batch_size // num_ds_shards
+    print("{} batch size: {}".format(config.model, batch_size))
 
     # initial_shape = (N, batch_size // N)
     initial_shape = None

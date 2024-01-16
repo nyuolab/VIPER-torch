@@ -24,7 +24,7 @@ class Transformer(nn.Module):
 
         self.dense_in = nn.Linear(in_features=ae_embed_dim, out_features=embed_dim)
         self.right_shift = RightShift(embed_dim)  # Assuming RightShift is already defined
-        self.position_bias = BroadcastPositionBiases(shape, device)  # Assuming BroadcastPositionBiases is already defined
+        self.position_bias = BroadcastPositionBiases(shape, self.embed_dim, device)  # Assuming BroadcastPositionBiases is already defined
         self.dropout = nn.Dropout(dropout)
 
         self.layers = nn.ModuleList([
@@ -367,7 +367,7 @@ class LayerNorm(nn.Module):
 
 
 class BroadcastPositionBiases(nn.Module):
-    def __init__(self, shape: Tuple[int], device):
+    def __init__(self, shape: Tuple[int], embed_dim, device):
         super(BroadcastPositionBiases, self).__init__()
         self.shape = shape
         self.device = device
@@ -376,22 +376,21 @@ class BroadcastPositionBiases(nn.Module):
         self.embs = nn.ParameterList()
 
         # The embedding dimension will be defined later in the forward pass
-        self.embed_dim = None
+        self.embed_dim = embed_dim
 
-        for i in range(n_dim):
-            # Placeholders for actual sizes which will be set in the forward method
-            self.embs.append(nn.Parameter(torch.randn(1) * 0.02)).to(self.device)
+        # for i in range(n_dim):
+        #     # Placeholders for actual sizes which will be set in the forward method
+        #     self.embs.append(nn.Parameter(torch.randn(1) * 0.02)).to(self.device)
+        
+        # self.embed_dim = x.shape[-1]
+        chunk_sizes = [self.embed_dim // self.n_dim + (i < (self.embed_dim % self.n_dim))
+                        for i in range(self.n_dim)]
+        assert sum(chunk_sizes) == self.embed_dim, f'sum({chunk_sizes}) = {sum(chunk_sizes)} != {self.embed_dim}'
+
+        for i in range(self.n_dim):
+            self.embs.append(nn.Parameter(torch.randn(self.shape[i], chunk_sizes[i]) * 0.02).to(self.device))
 
     def forward(self, x):
-        if self.embed_dim is None:
-            self.embed_dim = x.shape[-1]
-            chunk_sizes = [self.embed_dim // self.n_dim + (i < (self.embed_dim % self.n_dim))
-                           for i in range(self.n_dim)]
-            assert sum(chunk_sizes) == self.embed_dim, f'sum({chunk_sizes}) = {sum(chunk_sizes)} != {self.embed_dim}'
-
-            for i, emb in enumerate(self.embs):
-                self.embs[i] = nn.Parameter(torch.randn(self.shape[i], chunk_sizes[i]) * 0.02).to(self.device)
-
         out = []
         for i, e in enumerate(self.embs):
             e = e.view((1,) + (1,) * i + (self.shape[i],) + (1,) * (self.n_dim - i - 1) + (-1,))

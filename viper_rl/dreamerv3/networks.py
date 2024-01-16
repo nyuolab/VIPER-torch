@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch import distributions as torchd
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-import tools
+import viper_rl.dreamerv3.tools as tools
 
 # World Model: Recurrent State-Space Model (RSSM)
 class RSSM(nn.Module):
@@ -361,6 +361,80 @@ class RSSM(nn.Module):
 
         return loss, value, dyn_loss, rep_loss
 
+class Discriminator(nn.Module):
+    def __init__(
+        self,
+        shapes,
+        cnn_keys=r".*",
+        act="SiLU",
+        norm="LayerNorm",
+        mlp_layers=4,
+        mlp_units=512,
+        cnn="resnet",
+        cnn_depth=48,
+        kernel_size=4,
+        cnn_blocks=2,
+        resize="stride",
+        symlog_inputs=False,
+        minres=4,
+        # **kw,
+    ):
+        excluded = r"(is_first|is_last)"
+        shapes = {
+            k: v
+            for k, v in shapes.items()
+            if (not re.match(excluded, k) and not k.startswith("log_"))
+        }
+        
+        input_ch = sum([v[-1] for v in self.cnn_shapes.values()])
+        input_shape = tuple(self.cnn_shapes.values())[0][:2] + (input_ch,)
+        
+        self.cnn_shapes = {
+            k: v for k, v in shapes.items() if (len(v) == 3 and re.match(cnn_keys, k))
+        }
+        self.shapes = self.cnn_shapes
+        print("Discriminator CNN shapes:", self.cnn_shapes)
+        
+        input_ch = sum([v[-1] for v in self.cnn_shapes.values()])
+        input_shape = tuple(self.cnn_shapes.values())[0][:2] + (input_ch,)
+
+        if cnn == "resnet":
+            self._cnn = ConvEncoder(input_shape, depth=cnn_depth, act=act, norm=norm, kernel_size=4, minres=4)
+        else:
+            raise NotImplementedError(cnn)
+        # logit_kw = {**kw, "symlog_inputs": symlog_inputs, "name": "logit_mlp"}
+        input_dim = input_shape[:2] + (self._cnn.outdim,)
+
+        self._logit_mlp = MLP(
+            input_dim, 
+            None, 
+            layers=mlp_layers, 
+            units=mlp_units, 
+            act=act,
+            norm=norm,
+            symlog_inputs=symlog_inputs,
+            name="discMLP",
+        )
+        # self._logit_mlp.outdim
+        self.disc_logit = nn.Linear(in_features=mlp_units, out_features=1, bias=False)
+
+    def forward(self, data):
+        some_key, some_shape = list(self.shapes.items())[0]
+        batch_dims = data[some_key].shape[: -(1 + len(some_shape))]
+        data = {
+            k: v.reshape((-1,) + v.shape[len(batch_dims) :]) for k, v in data.items()
+        }
+        inputs = torch.cat([data[k] for k in self.cnn_shapes], -1)
+        inputs = torch.transpose(inputs, (0, 2, 3, 1, 4))
+        inputs = torch.reshape(inputs, inputs.shape[:3] + (np.prod(inputs.shape[3:]),))
+        output = self._cnn(inputs)
+        print(output.shape)
+        output = output.reshape((output.shape[0], -1))
+        output = output.reshape(batch_dims + output.shape[1:])
+        logits = self._logit_mlp(output)
+        projection = self.disc_logit(logits)
+        # projection = projection.reshape(projection.shape[:-1])
+        return projection
 
 class MultiEncoder(nn.Module):
     def __init__(
@@ -379,7 +453,8 @@ class MultiEncoder(nn.Module):
         symlog_inputs,
     ):
         super(MultiEncoder, self).__init__()
-        excluded = ("is_first", "is_last", "is_terminal", "reward")
+        # excluded = ("is_first", "is_last", "is_terminal", "reward")
+        excluded = ("is_first", "is_last", "is_terminal")
         shapes = {
             k: v
             for k, v in shapes.items()
@@ -469,8 +544,8 @@ class MultiDecoder(nn.Module):
         vector_dist,
     ):
         super(MultiDecoder, self).__init__()
-        # excluded = ("is_first", "is_last", "is_terminal", "reward")
-        excluded = ("is_first", "is_last", "is_terminal")
+        excluded = ("is_first", "is_last", "is_terminal", "reward")
+        # excluded = ("is_first", "is_last", "is_terminal")
         shapes = {k: v for k, v in shapes.items() if k not in excluded}
         self.cnn_shapes = {
             k: v for k, v in shapes.items() if len(v) == 3 and re.match(cnn_keys, k)
@@ -584,7 +659,7 @@ class ConvEncoder(nn.Module):
         # (batch * time, h, w, ch) -> (batch * time, ch, h, w)
         if x.shape[-1] == 3:
             x = x.permute(0, 3, 1, 2)
-        # print("ConvEncoder input shape after permute: {}".format(x.shape))
+            # print("ConvEncoder input shape after permute: {}".format(x.shape))
         x = self.layers(x)
         # (batch * time, ...) -> (batch * time, -1)
         x = x.reshape([x.shape[0], np.prod(x.shape[1:])])
@@ -694,8 +769,8 @@ class MLP(nn.Module):
         self,
         inp_dim,
         shape,
-        layers,
-        units,
+        layers=5,
+        units=1024,
         act="SiLU",
         norm="LayerNorm",
         dist="normal",
@@ -703,11 +778,17 @@ class MLP(nn.Module):
         outscale=1.0,
         symlog_inputs=False,
         device="cuda",
+        name = None,
     ):
         super(MLP, self).__init__()
         self._shape = (shape,) if isinstance(shape, int) else shape
-        if self._shape is not None and len(self._shape) == 0:
-            self._shape = (1,)
+
+        if self._shape is None:
+            self.outdim = units
+        else:
+            if len(self._shape) == 0:
+                self._shape = (1,)
+
         self._layers = layers
         act = getattr(torch.nn, act)
         norm = getattr(torch.nn, norm)

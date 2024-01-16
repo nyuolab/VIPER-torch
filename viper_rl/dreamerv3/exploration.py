@@ -2,9 +2,9 @@ import torch
 from torch import nn
 from torch import distributions as torchd
 
-import models
-import networks
-import tools
+import viper_rl.dreamerv3.models as models
+import viper_rl.dreamerv3.networks as networks
+import viper_rl.dreamerv3.tools as tools
 
 
 class Random(nn.Module):

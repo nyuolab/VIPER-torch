@@ -29,7 +29,7 @@ to_np = lambda x: x.detach().cpu().numpy()
 
 
 class Dreamer(nn.Module):
-    def __init__(self, obs_space, act_space, config, logger, dataset): # , video_encoder=None):
+    def __init__(self, obs_space, act_space, config, logger, dataset, reward_model=None): # , video_encoder=None):
         super(Dreamer, self).__init__()
         self._config = config
         self._logger = logger
@@ -45,6 +45,8 @@ class Dreamer(nn.Module):
         self._update_count = 0
         # self.video_encoder = video_encoder
         self._dataset = dataset
+        # self.n_skip = config.transformer["frame_skip"]
+        # self.seq_len = config.transformer["seq_len"] * self.n_skip
         self._wm = models.WorldModel(obs_space, act_space, self._step, config)
         self._task_behavior = models.ImagBehavior(
             config, self._wm, config.behavior_stop_grad
@@ -54,17 +56,23 @@ class Dreamer(nn.Module):
         ):  # compilation is not supported on windows
             self._wm = torch.compile(self._wm)
             self._task_behavior = torch.compile(self._task_behavior)
-        reward = lambda f, s, a: self._wm.heads["reward"](f).mean()
+        if self._config.task_behavior == "prior" or self._config.expl_behavior == "prior":
+            reward = lambda f, s, a: self._wm.heads["density"](f).mean()
+        else:    
+            reward = lambda f, s, a: self._wm.heads["reward"](f).mean()
+        
         self._expl_behavior = dict(
             greedy=lambda: self._task_behavior,
+            prior=lambda: self._task_behavior,
             random=lambda: expl.Random(config, act_space),
             plan2explore=lambda: expl.Plan2Explore(config, self._wm, reward),
         )[config.expl_behavior]().to(self._config.device)
 
+        self.reward_model = reward_model
         # print(self._config.expl_amount)
 
     # real trajectory
-    def __call__(self, obs, reset, state=None, training=True):
+    def __call__(self, obs, reset, state=None, training=True, train=True):
         # print(self._config.expl_amount)
         step = self._step
         if self._should_reset(step):
@@ -76,17 +84,19 @@ class Dreamer(nn.Module):
                     state[0][key][i] *= mask[i]
             for i in range(len(state[1])):
                 state[1][i] *= mask[i]
-        if training:
+        if training and train:
             steps = (
                 self._config.pretrain
                 if self._should_pretrain()
                 else self._should_train(step)
             )
-            for _ in range(steps):
+            for i in range(steps):
                 # checkpoint
+                # print("Training iter {}".format(i))
                 self._train(next(self._dataset))
                 self._update_count += 1
                 self._metrics["update_count"] = self._update_count
+            
             if self._should_log(step):
                 for name, values in self._metrics.items():
                     self._logger.scalar(name, float(np.mean(values)))
@@ -95,7 +105,7 @@ class Dreamer(nn.Module):
                 if self._config.video_pred_log:
                     openl = self._wm.video_pred(next(self._dataset))
                     self._logger.video("train_openl", to_np(openl))
-                self._logger.write(fps=True)
+                self._logger.write(fps=True) # print all metrics
                 
         if self._step > (self._config.prefill * self._config.action_repeat) and not (self._step % 1000):
             self._config.expl_amount = max(self._config.expl_amount*self._config.expl_decay_rate, self._config.expl_min)
@@ -141,8 +151,8 @@ class Dreamer(nn.Module):
         embed = self._wm.encoder(obs)
         
         latent, _ = self._wm.dynamics.obs_step(
-            latent, action.flatten(start_dim=-2), embed, obs["is_first"], self._config.collect_dyn_sample
-        )
+            latent, action, embed, obs["is_first"], self._config.collect_dyn_sample
+        ) # action.flatten(start_dim=-2)
         if self._config.eval_state_mean:
             latent["stoch"] = latent["mean"]
         feat = self._wm.dynamics.get_feat(latent)
@@ -204,12 +214,13 @@ class Dreamer(nn.Module):
         metrics.update(mets)
         start = post
         # why the virtual reward function doesn't use action as input?
-        reward = lambda f, s, a: self._wm.heads["reward"](
-            self._wm.dynamics.get_feat(s)
-        ).mode()
+        if self._config.task_behavior == "prior" or self._config.expl_behavior == "prior":
+            reward = lambda f, s, a: self._wm.heads["density"](f).mean()
+        else:    
+            reward = lambda f, s, a: self._wm.heads["reward"](f).mean()
         
         metrics.update(self._task_behavior._train(start, reward)[-1]) # imagbehavior
-        if self._config.expl_behavior != "greedy":
+        if self._config.expl_behavior not in ["greedy", "prior"]:
             mets = self._expl_behavior.train(start, context, data)[-1]
             metrics.update({"expl_" + key: value for key, value in mets.items()})
         for name, value in metrics.items():
@@ -411,7 +422,7 @@ def main(config):
                 self._config = config
             
             def __call__(self, o, d, state):
-                action = random_actor.sample(flatten=False)
+                action = random_actor.sample()
                 logprob = random_actor.log_prob(action)
                 return {"action": action, "logprob": logprob}, None
 

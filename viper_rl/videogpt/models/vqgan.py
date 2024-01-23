@@ -12,10 +12,11 @@ import torch.nn.functional as F
 
 
 class VQGAN(nn.Module):
-    def __init__(self, image_size, ch, ch_mult, num_res_blocks, attn_resolutions, z_channels, double_z, dropout, n_embed, embed_dim, patch_size, channels=None):
+    def __init__(self, image_size, ch, ch_mult, num_res_blocks, attn_resolutions, z_channels, double_z, dropout, n_embed, embed_dim, patch_size, device, ddp=False, channels=None):
         super(VQGAN, self).__init__()
         self.channels = channels if channels is not None else 3
-        self.encoder = Encoder(image_size=image_size, ch=ch, ch_mult=ch_mult,
+        self.encoder = Encoder(image_size=image_size, ch=ch, 
+                               ch_mult=ch_mult,
                                num_res_blocks=num_res_blocks,
                                attn_resolutions=attn_resolutions,
                                z_channels=z_channels,
@@ -24,7 +25,8 @@ class VQGAN(nn.Module):
                                downsample=patch_size)
 
         self.decoder = Decoder(image_size=image_size, ch=ch, ch_mult=ch_mult,
-                               out_ch=self.channels, embed_dim=embed_dim, num_res_blocks=num_res_blocks,
+                               out_ch=self.channels, embed_dim=embed_dim, 
+                               num_res_blocks=num_res_blocks,
                                attn_resolutions=attn_resolutions,
                                dropout=dropout,
                                upsample=patch_size)
@@ -34,6 +36,7 @@ class VQGAN(nn.Module):
         self.embed_dim = embed_dim
         self.n_embed = n_embed
         self.z_channels = z_channels
+        self.ddp = ddp
         ndims = len(self.patch_size)
         
         if ndims == 1:
@@ -56,8 +59,8 @@ class VQGAN(nn.Module):
     def latent_shape(self, image_size):
         return tuple([image_size // p for p in self.patch_size]) # (8, 8)
 
-    def codebook_lookup(self, encodings):
-        return self.quantize(None, encodings)    
+    def codebook_lookup(self, encodings, permute=True):
+        return self.quantize(None, encodings, permute=permute)    
 
     def reconstruct(self, image):
         vq_out = self.encode(image, deterministic=True)
@@ -75,7 +78,9 @@ class VQGAN(nn.Module):
         return vq_out
     
     def decode(self, encodings, is_embed=False, deterministic=True):
+        # print(encodings.shape)
         encodings = encodings if is_embed else self.codebook_lookup(encodings)
+        # print(encodings.shape) # [16, 8, 8, 64]
         recon = self.decoder(self.post_quant_conv(encodings)) #, deterministic)
         return recon
  
@@ -96,17 +101,27 @@ class VectorQuantizer(nn.Module):
         self.n_e = n_e
         self.e_dim = e_dim
         self.beta = beta
-        self.embeddings = nn.Parameter(torch.rand(n_e, e_dim) * 2 / n_e - 1.0 / n_e)
+        
+        self.embeddings = nn.Parameter(torch.rand(n_e, e_dim) * 2.0 / n_e - 1.0 / n_e)
         # (256, 64)
 
-    def forward(self, z, encoding_indices=None):
+    def forward(self, z, encoding_indices=None, permute=True):
         if encoding_indices is not None:
-            return self.embeddings[encoding_indices]
+            # print(self.embeddings.shape)
+            # print(encoding_indices.shape)
+            # print(self.embeddings[encoding_indices].shape)
+            embeddings = self.embeddings[encoding_indices]
+            if permute:
+                # (..., H, W, C) -> (..., C, H, W)
+                axis_order = tuple(range(embeddings.ndim - 3)) + (embeddings.ndim - 1, embeddings.ndim - 3, embeddings.ndim - 2)
+                return embeddings.permute(axis_order).contiguous()
+            else:
+                return embeddings
         # print(z.shape)
         # torch.Size([128, 64, 8, 8])
 
         z_flattened = z.permute(0, 2, 3, 1).contiguous()
-        z_e_size = z_flattened.shape[:-1]
+        z_e_size = z_flattened.shape
         z_flattened = z_flattened.view(-1, z_flattened.shape[-1])
         # print(z_flattened.shape) # [8192, 64]
         # progress
@@ -117,7 +132,7 @@ class VectorQuantizer(nn.Module):
         # print(d.shape) # [8192, 256]
         min_encoding_indices = torch.argmin(d, dim=1)
         z_q = self.embeddings[min_encoding_indices]
-        z_q = z_q.view(z.shape)
+        z_q = z_q.view(z_e_size).permute(0, 3, 1, 2).contiguous()
         
         loss = self.beta * torch.mean((z_q.detach() - z) ** 2) + \
                torch.mean((z_q - z.detach()) ** 2)
@@ -127,8 +142,8 @@ class VectorQuantizer(nn.Module):
         avg_probs = torch.mean(encodings_one_hot, dim=0)
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
         
-        min_encoding_indices = min_encoding_indices.view(*z_e_size)
-        # print(f'Latents of shape {min_encoding_indices.shape[1:]}')
+        min_encoding_indices = min_encoding_indices.view(*z_e_size[:-1])
+        # print(f'Latents of shape {min_encoding_indices.shape}') # [batch_size, 8, 8]
 
         return {
             'embeddings': z_q,
@@ -168,7 +183,7 @@ class Encoder(nn.Module):
 
         cur_res = self.image_size
         for i_level, mult in enumerate(ch_mult):
-            block_out = cur_channels * mult
+            block_out = self.ch * mult
             # print("Level {} Multiply {}".format(i_level, mult))
             for _ in range(num_res_blocks):
                 self.layers.append(ResnetBlock(cur_channels, block_out, dropout=dropout))
@@ -456,13 +471,22 @@ class AttnBlock(nn.Module):
         v = self.v_conv(h)
 
         B, C, *z_shape = q.shape
-        q = q.view(B, C, -1).permute(0, 2, 1)  # B, z_tot, C
-        k = k.view(B, C, -1)  # B, C, z_tot
-        w = torch.matmul(q, k) * (C ** -0.5)
-        w = F.softmax(w, dim=-1)
+        z_tot = np.prod(z_shape)
+        q = q.view(B, C, z_tot).permute(0, 2, 1)
+        k = k.view(B, C, z_tot).permute(0, 2, 1)
+        w_ = torch.bmm(q, k.transpose(1, 2)) * (C ** (-0.5))
+        w_ = F.softmax(w_, dim=-1)
 
-        v = v.view(B, C, -1)  # B, C, z_tot
-        h = torch.matmul(w, v.permute(0, 2, 1)).view(B, C, *z_shape)  # B, C, z_shape
+        v = v.view(B, C, z_tot).permute(0, 2, 1)
+        h = torch.bmm(w_, v).permute(0, 2, 1).view(B, C, *z_shape)
+
+        # q = q.view(B, C, -1).permute(0, 2, 1)  # B, z_tot, C
+        # k = k.view(B, C, -1)  # B, C, z_tot
+        # w = torch.matmul(q, k) * (C ** -0.5)
+        # w = F.softmax(w, dim=-1)
+
+        # v = v.view(B, C, -1)  # B, C, z_tot
+        # h = torch.matmul(w, v.permute(0, 2, 1)).view(B, C, *z_shape)  # B, C, z_shape
 
         h = self.out_conv(h)
 

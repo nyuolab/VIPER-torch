@@ -9,6 +9,8 @@ from moviepy.editor import ImageSequenceClip
 import torch
 import lpips
 
+from torch.optim.lr_scheduler import LambdaLR
+
 class TrainStateEMA:
     def __init__(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer, ema_decay: float):
         self.model = model
@@ -119,30 +121,36 @@ def print_model_size(model, name=''):
     else:
         print('model parameter count:', total_params)
 
+def combined_lr_scheduler(optimizer, config):
+    def lr_lambda(step):      
+        return min(step / float(config.warmup_steps), 1)
+        
+    return LambdaLR(optimizer, lr_lambda)
+
 def get_optimizer(model, config):
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer,
-        lr_lambda=lambda epoch: min((epoch + 1) / config.warmup_steps, 1)
-    )
+    scheduler = combined_lr_scheduler(optimizer, config)
     return optimizer, scheduler
 
 def init_model_state_videogpt(model, batch, config):
     # Initialize model parameters (assuming model is an instance of nn.Module)
     # In PyTorch, model parameters are initialized when the model is created
-    print_model_size(model)
+    if config.ddp: 
+        print_model_size(model.module)
+    else:   
+        print_model_size(model)
 
     train_state = TrainStateEMA(
         model=model,
-        optimizer=model.optimizer,
+        optimizer=model.module.optimizer if config.ddp else model.optimizer,
         ema_decay=config.ema  # Assuming ema_decay is a config attribute
     )
     return train_state
 
 def init_model_state_vqgan(model, batch, config):
     # In PyTorch, models are initialized when they are created
-    print_model_size(model.vqgan, name='vqgan')
-    print_model_size(model.disc, name='disc')
+    # print_model_size(model.vqgan, name='vqgan')
+    # print_model_size(model.disc, name='disc')
 
     # Initialize LPIPS
     # lpips_model = lpips.LPIPS(net='vgg').to(batch['image'].device)

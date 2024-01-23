@@ -173,7 +173,7 @@ def main(config):
     transformer_config = dict2obj(yaml.safe_load(open("viper_rl/configs/videogpt/dmc.yaml", 'r')))
 
     transformer_config.device = device
-    
+    config.ae["device"] = device
 
     if config.reward_model != 'none':
         print(f'Loading reward model {config.reward_model}')
@@ -233,7 +233,6 @@ def main(config):
 
     # print(acts)
     # video_encoder = VMAEEncoder(num_frames=config.video_len)
-    video_encoder = None
     
     state = None
     if not config.offline_traindir:

@@ -6,7 +6,15 @@ import torch.nn.functional as F
 
 from .transformer import Transformer
 
+import pathlib
+import sys
 
+
+directory = pathlib.Path(__file__).resolve()
+directory = directory.parent
+sys.path.append(str(directory.parent))
+
+from viper_rl.videogpt import weight_init
 
 class VideoGPT(nn.Module):
     def __init__(self, config, ae, device=None):
@@ -23,12 +31,14 @@ class VideoGPT(nn.Module):
             shape=self.shape,
             out_dim=self.ae.n_embed,
             device=self.device,
+            n_classes=self.config.n_classes,
         )
+        self.model.apply(weight_init)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config.lr)
         # progress
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(
             self.optimizer,
-            lr_lambda=lambda epoch: min((epoch + 1) / (config.warmup_steps+1), 1)
+            lr_lambda=lambda step: min(step / float(config.warmup_steps), 1)
         )
 
 
@@ -41,7 +51,7 @@ class VideoGPT(nn.Module):
         mask = torch.tril(torch.ones((L, L), dtype=torch.bool)).to(self.device)
 
         if self.config.class_cond:
-            label = F.one_hot(label.long(), num_classes=self.config.n_classes)
+            label = F.one_hot(label.long(), num_classes=self.config.n_classes).float()
 
         return self.model(embeddings, mask=mask, label=label, decode_step=decode_step, training=training)
 
@@ -50,14 +60,13 @@ class VideoGPT(nn.Module):
         return ['loss']
 
     def log_prob(self, embeddings, encodings, label=None, training=False, reduce_sum=True):
-        # wtf is embeddings? encodings = batch
         logits = self.forward(embeddings, label=label, training=training)
-        # print(logits.shape)
-        labels = F.one_hot(encodings.long(), num_classes=self.ae.n_embed).float()  # Assuming 'encodings' are in a suitable format
-        # print(logits.shape) # [64, 16, 8, 8, 256]
+        # print(logits.shape)        # print(logits.shape) # [64, 16, 8, 8, 256]
         # print(labels.shape) # [64, 16, 8, 8, 256]
         # nll = F.cross_entropy(logits.view(-1, logits.size(-1)), labels.view(-1, labels.size(-1)), reduction='none')
         # flatten_dim = np.prod(logits.shape[:-1])
+        labels = F.one_hot(encodings.long(), num_classes=self.ae.n_embed).float()  # Assuming 'encodings' are in a suitable format
+
         labels = torch.argmax(labels, dim=-1)
         # nll = F.cross_entropy(logits, labels)
         # print(logits.view(flatten_dim, -1).shape)

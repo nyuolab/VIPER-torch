@@ -431,7 +431,7 @@ def simulate(
             else:
                 raise TypeError("Multidiscrete action has to use dictionary")
         else:
-            if isinstance(action, dict):  
+            if isinstance(action, dict):
                 # if video_len > 1:
                 #     # (num_envs, video_length, action_dim)
                 #     action_seq = [
@@ -663,6 +663,8 @@ def simulate(
                     # print(cache[envs[i].id]["reward"])
                     with torch.no_grad():
                         cache[envs[i].id] = reward_model(cache[envs[i].id])
+                        video_score = sum(cache[envs[i].id]["density"])
+                        video_score_std = float(np.array(cache[envs[i].id]["density"]).std())
                     # print("The length of density seq is {}".format(len(cache[envs[i].id]["density"])))
                 # print(cache[envs[i].id].keys())
                 # print("The inventory variants are {}".format(cache[envs[i].id]["log_inventory/variant"]))
@@ -696,6 +698,9 @@ def simulate(
                     step_in_dataset = erase_over_episodes(cache, limit)
                     logger.scalar(f"dataset_size", step_in_dataset)
                     logger.scalar(f"train_return", score)
+                    if reward_model is not None:
+                        logger.scalar(f"train_viper_return", video_score)
+                        logger.scalar(f"train_viper_reward_std", video_score_std)
                     logger.scalar(f"train_length", length)
                     logger.scalar(f"train_episodes", len(cache))
                     logger.write(step=logger.step)
@@ -714,6 +719,8 @@ def simulate(
 
                     if len(eval_scores) >= episodes and not eval_done:
                         logger.scalar(f"eval_return", score)
+                        # if reward_model is not None:
+                        #     logger.scalar(f"eval_video_return", video_score)
                         logger.scalar(f"eval_length", length)
                         logger.scalar(f"eval_episodes", len(eval_scores))
                         logger.write(step=logger.step)

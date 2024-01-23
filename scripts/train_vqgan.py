@@ -33,7 +33,7 @@ sys.path.append(str(directory.parent))
 
 from viper_rl.videogpt.loss_vqgan import VQPerceptualWithDiscriminator
 from viper_rl.videogpt.data import load_dataset
-from viper_rl.videogpt.train_utils import init_model_state_vqgan, ProgressMeter, save_image_grid, get_first_device
+from viper_rl.videogpt.train_utils import init_model_state_vqgan, ProgressMeter, save_image_grid, get_first_device, print_model_size
 
 def extract_iteration(filename):
     match = re.search(r"checkpoint_(\d+).pth", filename)
@@ -50,12 +50,15 @@ def main():
     global ckpt_dir
 
     num_device = torch.cuda.device_count()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # rng = jax.random.PRNGKey(config.seed)
     # rng, init_rng = jax.random.split(rng)
 
-    # config.ckpt = config.output_dir if osp.exists(config.output_dir) else None
-    config.ckpt = None
+    config.ckpt = config.output_dir if osp.exists(config.output_dir) else None
+    # config.ckpt = None
+    config.device = device
+    config.ae['device'] = device
     ckpt_dir = osp.join(config.output_dir, 'checkpoints')
 
     if is_master_process:
@@ -63,6 +66,10 @@ def main():
                    id=config.run_id, resume='allow', mode='online')
         wandb.run.name = config.run_id
         wandb.run.save()
+    
+    model = VQPerceptualWithDiscriminator(config)
+    print_model_size(model.vqgan, name='vqgan')
+    print_model_size(model.disc, name='disc')
 
     train_loader, _, mask_map = load_dataset(config, train=True, num_ds_shards=dist.get_world_size(), ds_shard_id=dist.get_rank(), modality='image')
     test_loader, _, _ = load_dataset(config, train=False, num_ds_shards=dist.get_world_size(), ds_shard_id=dist.get_rank(), modality='image')
@@ -75,22 +82,24 @@ def main():
     print(batch.keys())
     batch = get_first_device(batch)
 
-    model = VQPerceptualWithDiscriminator(config)
 
     state = init_model_state_vqgan(model, batch, config)
+    state.model.use_device(device)
+    
+    start_iteration = 0
+
     if config.ckpt is not None:
-        model_files = glob.glob(f"{ckpt_dir}/checkpoints/*.pth")
+        model_files = glob.glob(f"{ckpt_dir}/*.pth")
         if len(model_files):
             checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
-            state.model.load_state_dict(checkpoint['model_state_dict'])
+            checkpoint = torch.load(checkpoint_path)
+            state.model.vqgan.load_state_dict(checkpoint['model_state_dict'])
             state.G_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            state.model.disc.load_state_dict(checkpoint['disc_state_dict'])
+            state.D_optimizer.load_state_dict(checkpoint['D_optimizer_state_dict'])
             start_iteration = checkpoint['iteration']
-            print(f'Restored from checkpoint {os.path.join(ckpt_dir)}, at iteration {start_iteration}')
-    else:
-        start_iteration = 0
+            print(f'Restored from checkpoint {os.path.join(checkpoint_path)}, at iteration {start_iteration}')
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    state.model.use_device(device)
     
 
     # Randomize RNG so we get different rngs when restarting after preemptions
@@ -102,15 +111,13 @@ def main():
         torch.manual_seed(iteration + random.randint(0, 100000))
         
         # Training function
-        iteration, state = train(iteration, state, train_loader, config, device)
+        iteration, state = train(iteration, state, train_loader, test_loader, config)
         
         # Visualization
         # if iteration % config.viz_interval == 0:
         #     visualize(iteration, state, test_loader, device)
 
         # Update learning rate
-        state.G_scheduler.step()
-        state.D_scheduler.step()
         
 def train_step(batch, state, device):
     # Assuming 'model' includes both VQGAN and discriminator sub-models
@@ -124,12 +131,14 @@ def train_step(batch, state, device):
     loss_G, aux_G = state.model.loss_G(batch)
     loss_G.backward()  # Backpropagation to calculate gradients
     state.G_optimizer.step()  # Update VQGAN parameters using its optimizer
+    # state.G_scheduler.step()
 
     # Discriminator update
     state.D_optimizer.zero_grad()
     loss_D, aux_D = state.model.loss_D(batch)
     loss_D.backward()  # Backpropagation to calculate gradients
     state.D_optimizer.step()  # Update discriminator parameters using its optimizer
+    # state.D_scheduler.step()
 
     # Combine auxiliary outputs
     aux = {**aux_G, **aux_D}
@@ -137,7 +146,7 @@ def train_step(batch, state, device):
     return state, aux
 
 
-def train(iteration, state, train_loader, config, device):
+def train(iteration, state, train_loader, test_loader, config):
     progress = ProgressMeter(
         config.total_steps,
         ['time', 'data'] + state.model.metrics
@@ -146,17 +155,24 @@ def train(iteration, state, train_loader, config, device):
     end = time.time()
     for batch in train_loader:
         # batch = next(train_loader)
-        batch_size = batch['image'].shape[1]
+        batch_size = batch['image'].shape[0]
         progress.update(data=time.time() - end)
 
-        state, metrics = train_step(batch, state, device)
+        # Visualization
+        if iteration % config.viz_interval == 0:
+            visualize(iteration, state, test_loader, config.device)
+
+        state, metrics = train_step(batch, state, config.device)
+
+        state.G_scheduler.step(iteration)
+        state.D_scheduler.step(iteration)
 
         metrics = {k: metrics[k].detach().cpu().numpy().mean() for k in state.model.metrics}
         metrics = {k: v.astype(np.float32) for k, v in metrics.items()}
         progress.update(n=batch_size, **{k: v for k, v in metrics.items()})
 
         if is_master_process:
-            wandb.log({'train/lr': state.G_scheduler.get_last_lr()[-1]}, step=iteration)
+            wandb.log({'train/lr': state.G_scheduler.get_last_lr()[0]}, step=iteration)
             wandb.log({**{f'train/{metric}': val
                         for metric, val in metrics.items()}
                     }, step=iteration)
@@ -190,12 +206,8 @@ def train(iteration, state, train_loader, config, device):
     return iteration, state
 
         
-def viz_step(batch, state):
+def viz_step(images, state):
     # Assuming batch is a dictionary with 'image' tensor
-    images = batch['image']
-
-    # Move images to the same device as the model
-    images = images.to(next(state.model.parameters()).device)
 
     # Perform forward pass (reconstruction) - no need for gradient tracking
     with torch.no_grad():
@@ -215,13 +227,15 @@ def visualize(iteration, state, test_loader, device):
     # Perform reconstruction using the model
     state.model.eval()  # Set the model to evaluation mode
     # with torch.no_grad():
-    recon = viz_step(images, state.model)  # Replace 'viz_step' with your model's method
+    recon = viz_step(images, state)  # Replace 'viz_step' with your model's method
 
     # Prepare images for visualization
-    images_np = images.cpu().numpy().reshape(-1, *images.shape[2:])
-    recon_np = recon.cpu().numpy().reshape(-1, *recon.shape[2:])
+    images_np = images.detach().cpu().numpy() # .reshape(-1, *images.shape[2:])
+    recon_np = recon.detach().cpu().numpy() # .reshape(-1, *recon.shape[2:])
     viz = np.stack((recon_np, images_np), axis=1)
+    
     viz = viz.reshape(-1, *viz.shape[2:]) * 0.5 + 0.5  # Adjusting range if necessary
+    viz = np.transpose(viz, (0, 2, 3, 1))
 
     # Save image grid and log to WandB
     viz_image = save_image_grid(viz)  # Define save_image_grid as needed

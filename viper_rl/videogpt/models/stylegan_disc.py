@@ -217,13 +217,14 @@ class StyleGANDisc(nn.Module):
         d_loss = torch.mean(F.softplus(logits_fake) + F.softplus(-logits_real))
 
         # Gradient penalty
-        real.requires_grad_()
+        real.requires_grad_(True)
         logits_real = self.compute_disc_logits(real)
         grads = torch.autograd.grad(outputs=logits_real, inputs=real,
                                     grad_outputs=torch.ones_like(logits_real),
                                     create_graph=True, retain_graph=True, only_inputs=True)[0]
-        r1_penalty = grads.square().sum([1, 2, 3]).mean()
-        r1_penalty *= self.gradient_penalty_weight
+        
+        r1_penalty = torch.mean(grads.pow(2)) * self.gradient_penalty_weight
+
 
         loss_D = d_loss + r1_penalty
         return {

@@ -56,7 +56,7 @@ class Dreamer(nn.Module):
         ):  # compilation is not supported on windows
             self._wm = torch.compile(self._wm)
             self._task_behavior = torch.compile(self._task_behavior)
-        if self._config.task_behavior == "prior" or self._config.expl_behavior == "prior":
+        if self._config.task_behavior == "prior":
             reward = lambda f, s, a: self._wm.heads["density"](f).mean()
         else:    
             reward = lambda f, s, a: self._wm.heads["reward"](f).mean()
@@ -214,7 +214,7 @@ class Dreamer(nn.Module):
         metrics.update(mets)
         start = post
         # why the virtual reward function doesn't use action as input?
-        if self._config.task_behavior == "prior" or self._config.expl_behavior == "prior":
+        if self._config.task_behavior == "prior":
             reward = lambda f, s, a: self._wm.heads["density"](f).mean()
         else:    
             reward = lambda f, s, a: self._wm.heads["reward"](f).mean()

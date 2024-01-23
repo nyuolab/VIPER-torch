@@ -12,106 +12,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 from torchvision import transforms
 from moviepy.editor import VideoFileClip
-# import torch.distributed as dist
 
-# dist.init_process_group(backend='nccl')
-
-class VideoToImageDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset):
-        self.dataset = dataset
-        self.frame_indices = self._get_frame_indices()
-
-    def _get_frame_indices(self):
-        frame_indices = []
-        for idx in range(len(self.dataset)):
-            video = self.dataset[idx]['video']
-            num_frames = video.shape[0]  # Assuming video shape is (frames, height, width, channels)
-            for frame_idx in range(num_frames):
-                frame_indices.append((idx, frame_idx))
-        return frame_indices
-
-    def __len__(self):
-        return len(self.frame_indices)
-
-    def __getitem__(self, idx):
-        video_idx, frame_idx = self.frame_indices[idx]
-        video = self.dataset[video_idx]['video']
-        frame = np.transpose(video[frame_idx], (2,0,1))
-        return {'image': frame}
-
-class VideoDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset):
-        self.dataset = dataset
-    
-    def __getitem__(self, idx):
-        video = self.dataset[idx]['video']
-        axis_order = tuple(range(video.n - 3)) + (video.ndim - 1, video.ndim - 3, video.ndim - 2)
-        video = np.transpose(video, axis_order)
-        return {'video': video}
-    
-    def __len__(self):
-        return len(self.dataset)
-    
-
-# class CombinedDataset(IterableDataset):
-#     def __init__(self, datasets, dataset_labels, batch_size, batch_per_dset):
-#         self.datasets = [iter(dataset) for dataset in datasets]  # Convert to iterators
-#         self.dataset_labels = dataset_labels
-#         self.batch_size = batch_size
-#         self.batch_per_dset = batch_per_dset
-#         self.N = len(datasets)  # Number of datasets
-
-#     def __iter__(self):
-#         idx = 0
-#         while True:
-#             batch = []
-#             for _ in range(math.ceil(self.batch_size / self.batch_per_dset)):
-#                 while self.datasets[idx] is None:
-#                     idx = (idx + 1) % self.N
-#                 x_i = next(self.datasets[idx])
-#                 x_i['label'] = torch.full((self.batch_per_dset,), self.dataset_labels[idx], dtype=torch.int32)
-#                 batch.append(x_i)
-#                 idx = (idx + 1) % self.N
-
-#             # Custom function to reshape the batch
-#             yield self._reshape_batch(batch)
-
-#     def _reshape_batch(self, batch):
-#         # Assuming all items in the batch have the same structure
-#         # Reshape the batch as per the original function's logic
-#         batched_data = {}
-#         for key in batch[0]:
-#             data = [item[key] for item in batch]
-#             concatenated_data = torch.cat(data, dim=0)[:self.batch_size]
-#             batched_data[key] = concatenated_data.view(self.N, -1, *concatenated_data.shape[1:])
-#         return batched_data
-
-class LabelDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset, paths, split):
-        self.dataset = dataset
-        self.split = split
-        self.labels = self.assign_labels(paths)
-        # print(len(self.labels))
-
-    def assign_labels(self, paths):
-        labels = []
-        for idx, path in enumerate(paths):
-            folder = os.path.join(path, self.split, '*.npz')
-            fns = _glob_files(folder)
-            # print(path)
-            num_items = len(fns) # Assuming the dataset size can be inferred
-            labels.extend([idx] * num_items)
-        return labels
-
-    def __getitem__(self, idx):
-        data = self.dataset[idx]
-        label = self.labels[idx]
-        # print(label)
-        data['label'] = label
-        return data
-
-    def __len__(self):
-        return len(self.dataset)
 
 def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
     num_data_local = torch.cuda.device_count()
@@ -125,17 +26,17 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
     # initial_shape = (N, batch_size // N)
     initial_shape = None
 
-    def get_dataset(data_path, data_type, batch_n, initial_shape, mask):
+    def get_dataset(data_path, label, data_type, batch_n, initial_shape, mask):
         load_fn = {
             'npz': load_npz,
             'mp4': load_mp4s,
         }[data_type]
         dataset = load_fn(
-            config, data_path, train, num_ds_shards, ds_shard_id, mask
+            config, data_path, train, num_ds_shards, ds_shard_id, mask, label, modality, 
         )
         
-        if modality == 'image':
-            dataset = VideoToImageDataset(dataset)
+        # if modality == 'image':
+        #     dataset = VideoToImageDataset(dataset)
         # else:
         #     dataset = VideoDataset(dataset)
         # print(len(dataset))
@@ -160,7 +61,7 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
     # print(data_type)
     if data_type in ['mp4', 'npz']:
         dataset = get_dataset(
-            config.data_path, data_type, batch_size, initial_shape=initial_shape
+            config.data_path, None, data_type, batch_size, initial_shape=initial_shape
         )
         class_map, mask_map = None, None
 
@@ -181,32 +82,34 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
             mask_map = None
         
         batch_per_dset = max(1, batch_size // len(data_paths))
-        dataset_labels = list(range(len(data_paths)))
+        # dataset_labels = list(range(len(data_paths)))
         if len(data_paths) >= num_ds_shards:
             data_paths = np.array_split(data_paths, num_ds_shards)[ds_shard_id].tolist()
-            dataset_labels = np.array_split(dataset_labels, num_ds_shards)[ds_shard_id].tolist()
+            # dataset_labels = np.array_split(dataset_labels, num_ds_shards)[ds_shard_id].tolist()
 
             # No need to shard further in load_* functions
             num_ds_shards = 1
             ds_shard_id = 0
 
         datasets = []
-        for data_path in data_paths:
+        # print(data_paths)
+        for label, data_path in enumerate(data_paths):
             data_type, _ = get_data_type(data_path)
             if mask_map is None:
                 mask = None
             else:
                 mask = mask_map[osp.basename(data_path)]
-            d = get_dataset(data_path, data_type, batch_per_dset, initial_shape=None, mask=mask)
+            d = get_dataset(data_path, label, data_type, batch_per_dset, initial_shape=None, mask=mask)
             print("Number of data is {}".format(len(d)))
             datasets.append(d)
         
         dataset = ConcatDataset(datasets)
         print("Total number of data is {}".format(len(dataset)))
 
-        if modality == 'video':
-            split = 'train' if train else 'test'
-            dataset = LabelDataset(dataset, data_paths, split)
+        # if modality == 'video':
+        #     split = 'train' if train else 'test'
+        #     dataset = VideoLabelDataset(dataset, data_paths, split)
+        #     print('video sequence dataset has length {}'.format(len(dataset)))
 
 
         data_loader = prepare(
@@ -254,47 +157,80 @@ def _reshape_sample(sample, initial_shape):
         reshaped_sample[key] = value.view(*initial_shape, *value.shape[1:])
     return reshaped_sample
 
-
-class NPZDataset(Dataset):
-    def __init__(self, file_paths, config, mask=None):
-        self.file_paths = file_paths
-        self.config = config
-        self.mask = mask
+class ImageDataset(Dataset):
+    def __init__(self, imgs):
+        self.imgs = img
 
     def __len__(self):
-        return len(self.file_paths)
+         return len(self.imgs)   
 
     def __getitem__(self, idx):
-        file_path = self.file_paths[idx]
-        # Load data from npz file
-        # print(file_path)
-        video = np.load(file_path)['arr_0']
-        if self.mask is not None:
-            video *= self.mask
+        return {'image': torch.tensor(self.imgs[idx], dtype=torch.float32)}
 
+class NPZVideoDataset(Dataset):
+    def __init__(self, videos, config, label=None):
+        self.videos = videos
+        self.config = config
+        self.label = label
+
+    def __len__(self):
+        return self.videos.shape[0]
+
+    def __getitem__(self, idx):
         # Data processing
-        if hasattr(self.config, 'seq_len'):
-            req_len = 1 + (self.config.seq_len - 1) * self.config.frame_skip
-            max_idx = video.shape[0] - req_len + 1
-            max_idx = min(max_idx, req_len)
-            idx = np.random.randint(0, max_idx)
-            video = video[idx:idx+req_len:self.config.frame_skip]
+        seq = torch.tensor(self.videos[idx], dtype=torch.float32) / 127.5 - 1
+        return {'video': seq, 'label': self.label}
 
-        video = torch.tensor(video, dtype=torch.float32) / 127.5 - 1
-        return {'video': video}
-
-def load_npz(config, data_path, train, n_shards, shard_id, mask):
+def load_npz(config, data_path, train, n_shards, shard_id, mask, label, modality):
     split = 'train' if train else 'test'
     folder = os.path.join(data_path, split, '*.npz')
     fns = _glob_files(folder)
-    random.Random(1234).shuffle(fns) 
+    random.Random(config.seed).shuffle(fns) 
     assert len(fns) > 0, f"Could not find any files for {folder}"
     fns = np.array_split(fns, n_shards)[shard_id].tolist()
 
     if mask is not None:
         mask = mask.astype(np.uint8)
+    
+    if modality == 'video':
+        videos = []
+        # video_len_scan = [0]
+        # video_cum_len = 0
+        for video_path in fns:
+            video = np.load(video_path)['arr_0']
+            if hasattr(config, 'seq_len'):
+                req_len = 1 + (config.seq_len - 1) * config.frame_skip
+                max_idx = video.shape[0] - req_len + 1
+                max_idx = min(max_idx, req_len)
+                np.random.seed(config.seed+video.shape[0])
+                idx = np.random.randint(0, max_idx)
+                video = video[idx:]
+                video = video[:video.shape[0] // req_len * req_len]
+                video = video.reshape(video.shape[0] // req_len, req_len, *video.shape[1:]) # (N, seq_len, H, W, C)
+                video = video[:, ::config.frame_skip]
+            else:
+                video = video[None]
 
-    dataset = NPZDataset(fns, config, mask)
+            if mask is not None:
+                video *= mask
+            videos.append(video)
+            # video_cum_len += video.shape[0]
+            # video_len_scan.append(video_cum_len)
+        videos = np.concatenate(videos, axis=0)
+
+        dataset = NPZVideoDataset(videos, config, label)
+        
+    elif modality == 'image':
+        imgs = []
+        for video_path in fns:
+            video = np.load(video_path)['arr_0']
+            imgs.append(video)
+        imgs = np.concatenate(imgs, axis=0)
+        new_axes = tuple(range(imgs.ndim - 3)) + (imgs.ndim - 1, imgs.ndim - 3, imgs.ndim - 2)
+        imgs = np.transpose(imgs, new_axes)
+        dataset = ImageDataset(imgs)
+    else:
+        raise NotImplementedError(f'Unsupported modality type {modality}')
     # data_loader = DataLoader(dataset, batch_size=1, num_workers=2, shuffle=True)
     return dataset
 

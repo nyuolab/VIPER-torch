@@ -148,7 +148,7 @@ class WorldModel(nn.Module):
             opt=config.opt,
             use_amp=self._use_amp,
         )
-        self._scales = dict(reward=config.reward_scale, cont=config.cont_scale)
+        self._scales = dict(reward=config.reward_scale, cont=config.cont_scale, density=config.density_scale)
 
         #RND network
         if self._config.curiosity == 'rnd':
@@ -226,102 +226,8 @@ class WorldModel(nn.Module):
                 losses = {}
                 for name, pred in preds.items():
                     like = pred.log_prob(data[name])
+                    # print("World model data loss for {}".format(name))
                     losses[name] = -torch.mean(like) * self._scales.get(name, 1.0)
-                
-
-                # additional_metrics = {}
-
-                # if self.amp:
-                #     idxs = list(
-                #         range(reference_data["is_first"].shape[1] - self.config.amp_window)
-                #     )
-                #     amp_data_stacks = {}
-                #     amp_reference_data_stacks = {}
-                #     for k, v in data.items():
-                #         if k in self.discriminator.shapes:
-                #             amp_data_stacks[k] = jnp.stack(
-                #                 [
-                #                     v[:, idx : (idx + self.config.amp_window)].astype(
-                #                         jnp.float32
-                #                     )
-                #                     for idx in idxs
-                #                 ],
-                #                 axis=1,
-                #             )
-                #     for k, v in reference_data.items():
-                #         if k in self.discriminator.shapes:
-                #             amp_reference_data_stacks[k] = torch.stack(
-                #                 [
-                #                     v[:, idx:(idx+self.config.amp_window)].float()
-                #                     for idx in idxs
-                #                 ],
-                #                 dim=1
-                #             )
-                #     amp_batch_dims = amp_data_stacks[list(amp_data_stacks.keys())[0]].shape[:2]
-                #     amp_data_stacks = jax.tree_util.tree_map(
-                #         lambda x: x.reshape((-1,) + x.shape[len(amp_batch_dims) :]),
-                #         amp_data_stacks,
-                #     )
-                #     amp_reference_data_stacks = jax.tree_util.tree_map(
-                #         lambda x: x.reshape((-1,) + x.shape[len(amp_batch_dims) :]),
-                #         amp_reference_data_stacks,
-                #     )
-                #     with torch.no_grad():
-                #         policy_d = self.discriminator(amp_data_stacks)
-                #     reference_d, reference_d_grad = jax.vmap(
-                #         jax.value_and_grad(self.discriminator, has_aux=False)
-                #     )(sg(amp_reference_data_stacks))
-                #     loss = lambda x, y: (x - y) ** 2
-                #     reference_labels, policy_labels = jnp.ones_like(
-                #         reference_d
-                #     ), -1 * jnp.ones_like(policy_d)
-                #     loss_reference = loss(reference_labels, reference_d)
-                #     loss_policy = loss(policy_labels, policy_d)
-                #     loss_disc = 0.5 * (loss_reference + loss_policy)
-
-                #     # Gradient penalty.
-                #     reference_d_grad = jax.tree_util.tree_map(
-                #         lambda x: jnp.square(x), reference_d_grad
-                #     )
-                #     reference_d_grad = jax.tree_util.tree_map(
-                #         lambda x: jnp.sum(x, axis=np.arange(1, len(x.shape))), reference_d_grad
-                #     )
-                #     reference_d_grad = jax.tree_util.tree_reduce(
-                #         lambda x, y: x + y, reference_d_grad
-                #     )
-                #     loss_gp = 2.5 * reference_d_grad / self.config.amp_window
-                #     losses["mp_amp"] = loss_disc
-                #     losses["mp_amp_gp"] = loss_gp
-
-                #     # Update discriminator head.
-                #     policy_d = jax.tree_util.tree_map(
-                #         lambda x: x.reshape(amp_batch_dims), policy_d
-                #     )
-                #     feats_new = {k: v[:, self.config.amp_window :] for k, v in feats.items()}
-                #     discriminator_rewards = jnp.clip(
-                #         1 - (1.0 / 4.0) * jnp.square(policy_d - 1), -2, 2
-                #     )
-                #     discriminator_reward_dist = self.heads["discriminator_reward"](
-                #         feats_new
-                #         if "discriminator_reward" in self.config.grad_heads
-                #         else sg(feats_new)
-                #     )
-                #     losses["discriminator_reward"] = -discriminator_reward_dist.log_prob(
-                #         discriminator_rewards.astype(jnp.float32)
-                #     )
-
-                #     metrics.update(
-                #         {
-                #             "mp_logits_reference_mean": reference_d.mean(),
-                #             "mp_logits_reference_std": reference_d.std(),
-                #             "mp_logits_policy_mean": policy_d.mean(),
-                #             "mp_logits_policy_std": policy_d.std(),
-                #             "mp_loss_reference_mean": loss_reference.mean(),
-                #             "mp_loss_reference_std": loss_reference.std(),
-                #             "mp_loss_policy_mean": loss_policy.mean(),
-                #             "mp_loss_policy_std": loss_policy.std(),
-                #         }
-                #     )
 
                 model_loss = sum(losses.values()) + kl_loss
 
@@ -334,6 +240,7 @@ class WorldModel(nn.Module):
         metrics["dyn_loss"] = to_np(dyn_loss)
         metrics["rep_loss"] = to_np(rep_loss)
         metrics["kl"] = to_np(torch.mean(kl_value))
+        
         with torch.cuda.amp.autocast(self._use_amp):
             metrics["prior_ent"] = to_np(
                 torch.mean(self.dynamics.get_dist(prior).entropy())

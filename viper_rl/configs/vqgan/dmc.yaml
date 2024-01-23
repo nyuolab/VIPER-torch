@@ -1,11 +1,11 @@
 seed: 1234
 
-batch_size: 64
+batch_size: 16
 lr: 1.e-4
 total_steps: 1000000
 warmup_steps: 1000
 save_interval: 1000
-viz_interval: 10000
+viz_interval: 1000
 log_interval: 100
 
 data_path: "viper_rl_data/datasets/dmc"

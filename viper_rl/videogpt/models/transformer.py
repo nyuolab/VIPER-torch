@@ -14,13 +14,14 @@ class GELU2(nn.Module):
         return torch.sigmoid(1.702 * x) * x
 
 class Transformer(nn.Module):
-    def __init__(self, image_size, ae_embed_dim, embed_dim, mlp_dim, num_heads, num_layers, dropout, attention_dropout, shape, out_dim, device):
+    def __init__(self, image_size, ae_embed_dim, embed_dim, mlp_dim, num_heads, num_layers, dropout, attention_dropout, shape, out_dim, device, n_classes=17):
         super(Transformer, self).__init__()
         self.device = device
         self.image_size = image_size
         self.embed_dim = embed_dim
         self.num_layers = num_layers
         self.shape = shape
+        self.n_classes = n_classes
 
         self.dense_in = nn.Linear(in_features=ae_embed_dim, out_features=embed_dim)
         self.right_shift = RightShift(embed_dim)  # Assuming RightShift is already defined
@@ -28,11 +29,11 @@ class Transformer(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         self.layers = nn.ModuleList([
-            TransformerLayer(embed_dim, mlp_dim, num_heads, dropout, attention_dropout)  # Assuming TransformerLayer is already defined
+            TransformerLayer(embed_dim, mlp_dim, num_heads, dropout, attention_dropout, n_classes)  # Assuming TransformerLayer is already defined
             for _ in range(num_layers)
         ])
 
-        self.norm = LayerNorm(embed_dim)  # Assuming LayerNorm is already defined
+        self.norm = LayerNorm(embed_dim, n_classes)  # Assuming LayerNorm is already defined
         self.dense_out = nn.Linear(embed_dim, out_dim)
 
     def forward(self, x, mask=None, training=False, label=None, decode_step=None):
@@ -68,14 +69,14 @@ class Transformer(nn.Module):
         for layer in self.layers:
             x = layer(x, mask=mask, label=label, decode_step=decode_step, training=training)
         
-        x = self.norm(x)
+        x = self.norm(x, cond=label)
         x = self.dense_out(x)
         x = x.view(x.shape[0], *old_shape, x.shape[-1])
         return x
 
 
 class TransformerLayer(nn.Module):
-    def __init__(self, embed_dim, mlp_dim, num_heads, dropout, attention_dropout):
+    def __init__(self, embed_dim, mlp_dim, num_heads, dropout, attention_dropout, n_classes):
         super(TransformerLayer, self).__init__()
         self.embed_dim = embed_dim
         self.mlp_dim = mlp_dim
@@ -84,11 +85,11 @@ class TransformerLayer(nn.Module):
         self.attention_dropout = attention_dropout
 
         # Assuming LayerNorm and MultiHeadAttention are already defined
-        self.norm1 = LayerNorm(embed_dim)
+        self.norm1 = LayerNorm(embed_dim, n_classes)
         self.attn = MultiHeadAttention(num_heads=num_heads, head_dim=embed_dim // num_heads, dropout_rate=attention_dropout)
         self.dropout1 = nn.Dropout(dropout)
 
-        self.norm2 = LayerNorm(embed_dim)
+        self.norm2 = LayerNorm(embed_dim, n_classes)
         self.mlp = nn.Sequential(
             nn.Linear(embed_dim, mlp_dim),
             # Assuming gelu2 is already defined
@@ -99,12 +100,12 @@ class TransformerLayer(nn.Module):
         self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, x, mask=None, label=None, decode_step=None, training=False):
-        h = self.norm1(x)
+        h = self.norm1(x, cond=label)
         h = self.attn(h, mask=mask, decode_step=decode_step)
         h = self.dropout1(h)
         x = x + h
 
-        h = self.norm2(x)
+        h = self.norm2(x, cond=label)
         h = self.mlp(h)
         h = self.dropout2(h)
         x = x + h
@@ -267,28 +268,30 @@ class MultiHeadAttention(nn.Module):
         query, key, value = qkv.chunk(3, dim=-1)
         
         batch_size, seq_length, _, _ = query.size()
-        # print(query.shape)
-        # print(key.shape)
-        # print(value.shape)
+        # print("query has shape {}".format(query.shape))
+        # print("key has shape {}".format(key.shape))
+        # print("value has shape {}".format(value.shape))
         # torch.Size([64, 1024, 8, 32])
 
         if decode_step is not None:
-            if self.cached_key is None or self.cached_value is None:
-                self.cached_key = key
-                self.cached_value = value
-            else:
-                if inputs.shape[1] == 1:
-                    self.cached_key[:, :, decode_step:decode_step+1, :] = key
-                    self.cached_value[:, :, decode_step:decode_step+1, :] = value
-                else:
-                    self.cached_key = key
-                    self.cached_value = value
+            # if self.cached_key is None or self.cached_value is None:
+            #     self.cached_key = key
+            #     self.cached_value = value
+            # else:
+            #     if inputs.shape[1] == 1:
+            #         self.cached_key[:, :, decode_step:decode_step+1, :] = key
+            #         self.cached_value[:, :, decode_step:decode_step+1, :] = value
+            #     else:
+            #         self.cached_key = key
+            #         self.cached_value = value
 
-            key = self.cached_key
-            value = self.cached_value
+            # key = self.cached_key
+            # value = self.cached_value
 
             if mask is not None and inputs.shape[1] == 1:
-                mask = mask[decode_step:decode_step+1, :]
+                mask = mask[decode_step, None]
+                mask = mask[:, :key.shape[1]]
+                # print("The mask shape is {}".format(mask.shape))
 
         # Attention computation
         # attn_output, _ = F.multi_head_attention_forward(
@@ -320,18 +323,20 @@ class MultiHeadAttention(nn.Module):
         return out
 
          
-class ConditionalDense(nn.Module):
-    def __init__(self, features, use_bias=False):
-        super(ConditionalDense, self).__init__()
-        self.linear = nn.Linear(features, features, bias=use_bias)
+# class ConditionalDense(nn.Module):
+#     def __init__(self, features, use_bias=False):
+#         super(ConditionalDense, self).__init__()
+#         self.linear = nn.Linear(features, features, bias=use_bias)
 
-    def forward(self, x):
-        return self.linear(x).unsqueeze(-2)
+#     def forward(self, x):
+#         return self.linear(x).unsqueeze(-2)
 
 
 class LayerNorm(nn.Module):
-    def __init__(self, features, epsilon=1e-6, use_bias=True, use_scale=True):
+    def __init__(self, features, n_classes, epsilon=1e-6, use_bias=True, use_scale=True):
         super(LayerNorm, self).__init__()
+        self.features = features
+        self.n_classes = n_classes
         self.epsilon = epsilon
         self.use_bias = use_bias
         self.use_scale = use_scale
@@ -339,29 +344,34 @@ class LayerNorm(nn.Module):
             self.bias = nn.Parameter(torch.zeros(features))
         if use_scale:
             self.scale = nn.Parameter(torch.ones(features))
-        # Conditional layers
-        self.conditional_scale = ConditionalDense(features, use_bias=False)
-        self.conditional_bias = ConditionalDense(features, use_bias=False)
+        
+        self.scale_linear = nn.Linear(n_classes, features, bias=False)
+        self.bias_linear = nn.Linear(n_classes, features, bias=False)
+        
 
     def forward(self, x, cond=None):
+        # print(x.shape)
         mean = x.mean(dim=-1, keepdim=True)
-        std = x.var(dim=-1, keepdim=True, unbiased=False).sqrt()
-
-        y = (x - mean) / (std + self.epsilon)
-
+        var = x.var(dim=-1, keepdim=True, unbiased=False)
+        # print(cond.dtype)
+        y = x - mean
+        mul = torch.rsqrt(var + self.epsilon)
         if self.use_scale:
             if cond is None:
-                y *= self.scale
+                mul = mul * self.scale
             else:
-                scale = self.conditional_scale(cond)
-                y *= 1 + scale
+                scale = self.scale_linear(cond)
+                scale = scale.reshape(scale.shape[0], *((1,) * (len(x.shape) - 2)), scale.shape[-1])
+                mul = mul * (1 + scale)
+        y = y * mul
 
         if self.use_bias:
             if cond is None:
-                y += self.bias
+                y = y + self.bias
             else:
-                bias = self.conditional_bias(cond)
-                y += bias
+                bias = self.bias_linear(cond)
+                bias = bias.reshape(bias.shape[0], *((1,) * (len(x.shape) - 2)), bias.shape[-1])
+                y = y + bias
 
         return y
 

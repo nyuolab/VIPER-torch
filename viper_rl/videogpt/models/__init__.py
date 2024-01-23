@@ -5,6 +5,7 @@ import re
 import pickle
 import numpy as np
 import torch
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from .vqgan import VQGAN
 from .videogpt import VideoGPT
@@ -54,7 +55,10 @@ def load_vqgan(path, ae_config):
     # config = pickle.load(open(osp.join(path, 'args'), 'rb'))
     
     # Initialize the VQGAN model with the loaded configuration
-    model = VQGAN(**ae_config)  # Replace VQGAN with your PyTorch implementation
+    device = ae_config['device']
+    model = VQGAN(**ae_config).to(device)  # Replace VQGAN with your PyTorch implementation
+    if ae_config['ddp']:
+       model = DDP(model, device_ids=[device])
 
     # Load mask map if exists
     mask_file = osp.join(path, 'mask_map.pkl')
@@ -73,16 +77,23 @@ def load_vqgan(path, ae_config):
     if len(model_files):
         checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
         print("load vqgan weights from {}".format(checkpoint_path))
-        model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+        if ae_config['ddp']:
+            model.module.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+        else:
+            model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
 
     return model, mask_map
 
 
 class AE:
     def __init__(self, path, ae_config):
+        self.ddp = ae_config["ddp"]
+        self.device = ae_config["device"]
         path = osp.expanduser(path)
         self.ae, self.mask_map = load_vqgan(path, ae_config)  # Assuming load_vqgan is adapted for PyTorch
         # PyTorch doesn't have a direct equivalent of JAX's 'pmap' or 'jit' mode
+        if self.ddp:
+            self.ae = self.ae.module
 
     def latent_shape(self, image_size):
         return self.ae.latent_shape(image_size) # (8, 8)
@@ -92,7 +103,7 @@ class AE:
         return self.ae.codebook_embed_dim
     
     @property
-    def n_embed(self):
+    def n_embed(self): 
         return self.ae.n_embed
 
     def encode(self, video):
@@ -111,16 +122,16 @@ class AE:
         recon = torch.clip(recon, -1, 1)
         return recon.reshape(-1, T, *recon.shape[1:])
     
-    def lookup(self, encodings):
+    def lookup(self, encodings, permute=True):
         # Assuming the AE model has 'codebook_lookup' method
-        return self.ae.codebook_lookup(encodings)
+        return self.ae.codebook_lookup(encodings, permute=permute)
 
     def prepare_batch(self, batch):
         # Prepare the batch for training, similar logic as in JAX
         if 'encodings' in batch:
-            encodings = batch.pop('encodings')
+            encodings = batch.pop('encodings').to(self.device) 
         else:
-            video = batch.pop('video')
+            video = batch.pop('video').to(self.device) 
             # (..., H, W, C) -> (..., C, H, W)
             axis_order = tuple(range(video.ndim - 3)) + (video.ndim - 1, video.ndim - 3, video.ndim - 2)
             video = torch.permute(video, axis_order)
@@ -129,9 +140,11 @@ class AE:
             # print(encodings.shape) # [64, 16, 8, 8]
 
         if 'embeddings' in batch:
-            embeddings = batch.pop('embeddings')
+            embeddings = batch.pop('embeddings').to(self.device)
         else:
-            embeddings = self.lookup(encodings)
+            embeddings = self.lookup(encodings, permute=False)
+        # print(embeddings.shape)
+        # print(encodings.shape)
         batch.update(embeddings=embeddings, encodings=encodings)
         return batch
 

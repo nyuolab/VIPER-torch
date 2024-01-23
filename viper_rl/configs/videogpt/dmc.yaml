@@ -1,13 +1,14 @@
 seed: 1234
 
-batch_size: 128
+batch_size: 75
 lr: 1.e-4
 total_steps: 800000
-warmup_steps: 0
-save_interval: 1000
-test_interval: 10000
-viz_interval: 10000
+warmup_steps: 1
+save_interval: 5000
+test_interval: 1000
+viz_interval: 5000
 log_interval: 100
+log_eval_interval: 10
 data_path: "viper_rl_data/datasets/dmc"
 
 ema: 0.9999
@@ -18,6 +19,7 @@ image_size: 64
 seq_len: 16
 frame_skip: 1
 ae_ckpt: "viper_rl_data/checkpoints/dmc_vqgan"
+ddp: False
 
 ae:
   image_size: 64
@@ -31,6 +33,7 @@ ae:
   n_embed: 256
   embed_dim: 64
   patch_size: [8, 8]
+  ddp: False
 
 n_classes: 17
 class_cond: true

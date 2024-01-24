@@ -10,6 +10,7 @@ viz_interval: 5000
 log_interval: 100
 log_eval_interval: 10
 data_path: "viper_rl_data/datasets/dmc"
+start_iter: 0
 
 ema: 0.9999
 optimizer: "adam"
@@ -33,7 +34,6 @@ ae:
   n_embed: 256
   embed_dim: 64
   patch_size: [8, 8]
-  ddp: False
 
 n_classes: 17
 class_cond: true

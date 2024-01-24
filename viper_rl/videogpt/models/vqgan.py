@@ -12,7 +12,7 @@ import torch.nn.functional as F
 
 
 class VQGAN(nn.Module):
-    def __init__(self, image_size, ch, ch_mult, num_res_blocks, attn_resolutions, z_channels, double_z, dropout, n_embed, embed_dim, patch_size, device, ddp=False, channels=None):
+    def __init__(self, image_size, ch, ch_mult, num_res_blocks, attn_resolutions, z_channels, double_z, dropout, n_embed, embed_dim, patch_size, ddp=False, channels=None):
         super(VQGAN, self).__init__()
         self.channels = channels if channels is not None else 3
         self.encoder = Encoder(image_size=image_size, ch=ch, 

@@ -14,9 +14,8 @@ class GELU2(nn.Module):
         return torch.sigmoid(1.702 * x) * x
 
 class Transformer(nn.Module):
-    def __init__(self, image_size, ae_embed_dim, embed_dim, mlp_dim, num_heads, num_layers, dropout, attention_dropout, shape, out_dim, device, n_classes=17):
+    def __init__(self, image_size, ae_embed_dim, embed_dim, mlp_dim, num_heads, num_layers, dropout, attention_dropout, shape, out_dim, n_classes=17):
         super(Transformer, self).__init__()
-        self.device = device
         self.image_size = image_size
         self.embed_dim = embed_dim
         self.num_layers = num_layers
@@ -25,7 +24,7 @@ class Transformer(nn.Module):
 
         self.dense_in = nn.Linear(in_features=ae_embed_dim, out_features=embed_dim)
         self.right_shift = RightShift(embed_dim)  # Assuming RightShift is already defined
-        self.position_bias = BroadcastPositionBiases(shape, self.embed_dim, device)  # Assuming BroadcastPositionBiases is already defined
+        self.position_bias = BroadcastPositionBiases(shape, self.embed_dim)  # Assuming BroadcastPositionBiases is already defined
         self.dropout = nn.Dropout(dropout)
 
         self.layers = nn.ModuleList([
@@ -35,6 +34,10 @@ class Transformer(nn.Module):
 
         self.norm = LayerNorm(embed_dim, n_classes)  # Assuming LayerNorm is already defined
         self.dense_out = nn.Linear(embed_dim, out_dim)
+
+    def position_bias_to_device(self):
+        # self.position_bias = BroadcastPositionBiases(self.shape, self.embed_dim, self.device)
+        self.position_bias.embs.to(self.device)
 
     def forward(self, x, mask=None, training=False, label=None, decode_step=None):
         old_shape = x.shape[1:-1]
@@ -377,10 +380,10 @@ class LayerNorm(nn.Module):
 
 
 class BroadcastPositionBiases(nn.Module):
-    def __init__(self, shape: Tuple[int], embed_dim, device):
+    def __init__(self, shape: Tuple[int], embed_dim):
         super(BroadcastPositionBiases, self).__init__()
         self.shape = shape
-        self.device = device
+        # self.device = device
         n_dim = len(shape)
         self.n_dim = n_dim
         self.embs = nn.ParameterList()
@@ -398,7 +401,7 @@ class BroadcastPositionBiases(nn.Module):
         assert sum(chunk_sizes) == self.embed_dim, f'sum({chunk_sizes}) = {sum(chunk_sizes)} != {self.embed_dim}'
 
         for i in range(self.n_dim):
-            self.embs.append(nn.Parameter(torch.randn(self.shape[i], chunk_sizes[i]) * 0.02).to(self.device))
+            self.embs.append(nn.Parameter(torch.randn(self.shape[i], chunk_sizes[i]) * 0.02))
 
     def forward(self, x):
         out = []

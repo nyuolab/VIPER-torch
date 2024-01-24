@@ -16,13 +16,15 @@ sys.path.append(str(directory.parent))
 
 from viper_rl.videogpt import weight_init
 
+
+
 class VideoGPT(nn.Module):
-    def __init__(self, config, ae, device=None):
+    def __init__(self, config, ae):
         super(VideoGPT, self).__init__()
         self.config = config
         # print(self.config)
         self.ae = ae
-        self.device = config.device if device is None else device
+        # self.device = config.device if device is None else device
         self.shape = (config.seq_len, *ae.latent_shape(config.image_size)) # (16, 8, 8)
         self.model = Transformer(
             config.image_size,
@@ -30,16 +32,35 @@ class VideoGPT(nn.Module):
             **self.config.transformer,
             shape=self.shape,
             out_dim=self.ae.n_embed,
-            device=self.device,
             n_classes=self.config.n_classes,
         )
+        self.ema_decay = config.ema
+
         self.model.apply(weight_init)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config.lr)
-        # progress
-        self.scheduler = torch.optim.lr_scheduler.LambdaLR(
+
+        # def lambda_fn(step):
+        #     return min(step / float(config.warmup_steps), 1)
+            
+        self.scheduler = torch.optim.lr_scheduler.StepLR(
             self.optimizer,
-            lr_lambda=lambda step: min(step / float(config.warmup_steps), 1)
+            step_size=config.total_steps,
+            gamma=1.0
         )
+
+    def init_ema_params(self):
+        self.ema_params = {name: param.clone() for name, param in self.model.named_parameters()}
+
+    def update_ema(self, ema_decay=None):
+        if not ema_decay:
+            ema_decay = self.ema_decay
+        model = self.model.module if self.config.ddp else self.model
+        for name, param in model.named_parameters():
+            # print("name is {}".format(name))
+            # print("ema param device is {}".format(self.ema_params[name].device))
+            # print("param device is {}".format(param.device))
+            if param.requires_grad:
+                self.ema_params[name] = self.ema_decay * self.ema_params[name] + (1.0 - self.ema_decay) * param
 
 
     def forward(self, embeddings, label=None, decode_step=None, training=False):

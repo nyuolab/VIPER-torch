@@ -16,7 +16,7 @@ class TrainStateEMA:
         self.model = model
         self.optimizer = optimizer
         self.ema_decay = ema_decay
-        self.ema_params = {name: param.clone().detach().to(param.device) for name, param in model.named_parameters()}
+
 
     def update_ema(self, ema_decay=None):
         if not ema_decay:
@@ -28,29 +28,6 @@ class TrainStateEMA:
             if param.requires_grad:
                 self.ema_params[name] = self.ema_decay * self.ema_params[name] + (1.0 - self.ema_decay) * param
 
-# class TrainStateEMA:
-#     def __init__(self, model, optimizer, ema_decay):
-#         self.model = model
-#         self.optimizer = optimizer
-#         self.ema_params = OrderedDict(model.named_parameters())
-#         self.ema_decay = ema_decay
-#         self.ema_params = self._initialize_ema_params(model)
-    
-#     def _initialize_ema_params(self, model):
-#         # Initialize EMA parameters to be the same as the model's parameters
-#         ema_params = {}
-#         for name, param in model.named_parameters():
-#             if param.requires_grad:
-#                 ema_params[name] = param.data.clone().detach()
-#         return ema_params
-
-#     def update_ema(self, ema_decay=None):
-#         if not ema_decay:
-#             ema_decay = self.ema_decay
-
-#         for name, param in self.model.named_parameters():
-#             if param.requires_grad:
-#                 self.ema_params[name].mul_(ema_decay).add_(param.data, alpha=1 - ema_decay)
 
 class TrainStateVQ:
     def __init__(self, model, config):
@@ -132,20 +109,6 @@ def get_optimizer(model, config):
     scheduler = combined_lr_scheduler(optimizer, config)
     return optimizer, scheduler
 
-def init_model_state_videogpt(model, batch, config):
-    # Initialize model parameters (assuming model is an instance of nn.Module)
-    # In PyTorch, model parameters are initialized when the model is created
-    if config.ddp: 
-        print_model_size(model.module)
-    else:   
-        print_model_size(model)
-
-    train_state = TrainStateEMA(
-        model=model,
-        optimizer=model.module.optimizer if config.ddp else model.optimizer,
-        ema_decay=config.ema  # Assuming ema_decay is a config attribute
-    )
-    return train_state
 
 def init_model_state_vqgan(model, batch, config):
     # In PyTorch, models are initialized when they are created

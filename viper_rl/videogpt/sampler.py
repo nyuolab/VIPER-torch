@@ -4,10 +4,9 @@ import numpy as np
 import torch
 
 class VideoGPTSampler:
-    def __init__(self, model, ddp=False):
-        self.ae = model.module.ae if ddp else model.ae
+    def __init__(self, model):
         self.model = model
-        self.config = model.module.config if ddp else model.config
+        self.config = model.config
 
     # @cached_property
     def _model_step(self, embeddings, label, decode_step, training=False):
@@ -26,10 +25,9 @@ class VideoGPTSampler:
         
     def __call__(self, batch, log_tqdm=True, open_loop_ctx=None, decode=True):
         # Prepare the batch
-        # Assuming self.ae.prepare_batch is adapted for PyTorch
         # batch = {k: v.clone().detach().cpu() for k, v in batch.items()}
         with torch.no_grad():
-            batch = self.ae.prepare_batch(batch)
+            batch = self.model.ae.prepare_batch(batch)
         encodings = batch.pop('encodings') # [batch_size, seq_len, height, width]
         label = batch['label'].to(self.config.device)
         # print(label.dtype)
@@ -61,7 +59,7 @@ class VideoGPTSampler:
             # Retrieve logits from the model
             # Assuming self._model_step is adapted for PyTorch
             # embed_dim = [batch_size, 1, embed_dim=64]
-            logits = self._model_step(self.ae.lookup(samples[...,  i - 1, None], permute=False), label, i)
+            logits = self._model_step(self.model.ae.lookup(samples[...,  i-1, None], permute=False), label, i)
             # print(logits.shape) # [72, 1, 256]
             # Sample from logits
             # Assuming self._sample_step is adapted for PyTorch
@@ -71,7 +69,7 @@ class VideoGPTSampler:
         # Reshape and decode samples if required
         samples = samples.reshape(*samples.shape[:-1], *latent_shape)
         if decode:
-            samples = self.ae.decode(samples) * 0.5 + 0.5
+            samples = self.model.ae.decode(samples) * 0.5 + 0.5
         samples = samples.detach().cpu().numpy()
 
         return samples

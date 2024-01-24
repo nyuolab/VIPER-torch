@@ -14,25 +14,24 @@ from torchvision import transforms
 from moviepy.editor import VideoFileClip
 
 
-def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
+def load_dataset(config, train, modality='video'):
     num_data_local = torch.cuda.device_count()
     # num_ds_shards = dist.get_world_size()
     # ds_shard_id = dist.get_rank()
 
-    N = num_data_local
-    batch_size = config.batch_size // num_ds_shards
+    batch_size = config.batch_size
     print("{} batch size: {}".format(config.model, batch_size))
 
     # initial_shape = (N, batch_size // N)
     initial_shape = None
 
-    def get_dataset(data_path, label, data_type, batch_n, initial_shape, mask):
+    def get_dataset(data_path, label, data_type, initial_shape, mask):
         load_fn = {
             'npz': load_npz,
             'mp4': load_mp4s,
         }[data_type]
         dataset = load_fn(
-            config, data_path, train, num_ds_shards, ds_shard_id, mask, label, modality, 
+            config, data_path, train, mask, label, modality, 
         )
         
         # if modality == 'image':
@@ -65,11 +64,11 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
         )
         class_map, mask_map = None, None
 
-        data_loader = prepare(
-            dataset, batch_size,
-            initial_shape=initial_shape,
-            num_device=N,
-        )
+        # data_loader = prepare(
+        #     dataset, batch_size,
+        #     initial_shape=initial_shape,
+        #     num_device=N,
+        # )
     else:
         data_paths = aux
         class_map = {osp.basename(k): i for i, k in enumerate(data_paths)}
@@ -81,15 +80,15 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
         else:
             mask_map = None
         
-        batch_per_dset = max(1, batch_size // len(data_paths))
+        # batch_per_dset = max(1, batch_size // len(data_paths))
         # dataset_labels = list(range(len(data_paths)))
-        if len(data_paths) >= num_ds_shards:
-            data_paths = np.array_split(data_paths, num_ds_shards)[ds_shard_id].tolist()
-            # dataset_labels = np.array_split(dataset_labels, num_ds_shards)[ds_shard_id].tolist()
+        # if len(data_paths) >= num_ds_shards:
+        #     data_paths = np.array_split(data_paths, num_ds_shards)[ds_shard_id].tolist()
+        #     # dataset_labels = np.array_split(dataset_labels, num_ds_shards)[ds_shard_id].tolist()
 
-            # No need to shard further in load_* functions
-            num_ds_shards = 1
-            ds_shard_id = 0
+        #     # No need to shard further in load_* functions
+        #     num_ds_shards = 1
+        #     ds_shard_id = 0
 
         datasets = []
         # print(data_paths)
@@ -99,7 +98,7 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
                 mask = None
             else:
                 mask = mask_map[osp.basename(data_path)]
-            d = get_dataset(data_path, label, data_type, batch_per_dset, initial_shape=None, mask=mask)
+            d = get_dataset(data_path, label, data_type, initial_shape=None, mask=mask)
             print("Number of data is {}".format(len(d)))
             datasets.append(d)
         
@@ -112,33 +111,50 @@ def load_dataset(config, train, num_ds_shards, ds_shard_id, modality='video'):
         #     print('video sequence dataset has length {}'.format(len(dataset)))
 
 
-        data_loader = prepare(
-            dataset, batch_size,
-            initial_shape=initial_shape,
-            num_device=N,
-        )
+        # data_loader = prepare(
+        #     dataset, batch_size,
+        #     initial_shape=initial_shape,
+        #     num_device=num_data_local,
+        # )
         # dataset = ConcatDataset(datasets)
         # dataset = CombinedDataset(datasets, dataset_labels, batch_size, batch_per_dset)
         
     # dataset = jax_utils.prefetch_to_device(dataset, 2)
-    return data_loader, class_map, mask_map
+    return dataset, class_map, mask_map
 
 
-def prepare(dataset, batch_size, initial_shape=None, num_device=1):
+def prepare(dataset, batch_size, world_size, rank, ddp=True, initial_shape=None):
     # Check if in DEBUG mode
     shuffle_size = batch_size if os.environ.get('DEBUG') == '1' else batch_size * 64
 
     # Create a data loader
-    data_loader = DataLoader(
-        dataset, 
-        batch_size=batch_size, 
-        shuffle=True, # Shuffling the dataset
-        drop_last=True, # Dropping the last incomplete batch
-        num_workers=os.cpu_count() // num_device, # os.cpu_count(), # Utilizing multiple CPU cores
-        prefetch_factor=None, # Prefetching batches
-        pin_memory=True,
-        collate_fn=lambda x: custom_collate_fn(x, initial_shape)
-    )
+    if ddp:
+        sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank)
+        data_loader = DataLoader(
+            dataset, 
+            sampler=sampler,
+            batch_size=batch_size, 
+            shuffle=True, # Shuffling the dataset
+            drop_last=True, # Dropping the last incomplete batch
+            num_workers=os.cpu_count() // world_size, # os.cpu_count(), # Utilizing multiple CPU cores
+            prefetch_factor=None, # Prefetching batches
+            pin_memory=True,
+            # collate_fn=lambda x: custom_collate_fn(x, initial_shape)
+            collate_fn=torch.utils.data.dataloader.default_collate,
+        )
+    else:
+        data_loader = DataLoader(
+            dataset, 
+            batch_size=batch_size, 
+            shuffle=True, # Shuffling the dataset
+            drop_last=True, # Dropping the last incomplete batch
+            num_workers=os.cpu_count(), # os.cpu_count(), # Utilizing multiple CPU cores
+            prefetch_factor=None, # Prefetching batches
+            pin_memory=True,
+            # collate_fn=lambda x: custom_collate_fn(x, initial_shape)
+            collate_fn=torch.utils.data.dataloader.default_collate,
+        )
+
     return data_loader
 
 
@@ -181,13 +197,13 @@ class NPZVideoDataset(Dataset):
         seq = torch.tensor(self.videos[idx], dtype=torch.float32) / 127.5 - 1
         return {'video': seq, 'label': self.label}
 
-def load_npz(config, data_path, train, n_shards, shard_id, mask, label, modality):
+def load_npz(config, data_path, train, mask, label, modality):
     split = 'train' if train else 'test'
     folder = os.path.join(data_path, split, '*.npz')
     fns = _glob_files(folder)
     random.Random(config.seed).shuffle(fns) 
     assert len(fns) > 0, f"Could not find any files for {folder}"
-    fns = np.array_split(fns, n_shards)[shard_id].tolist()
+    # fns = np.array_split(fns, n_shards)[shard_id].tolist()
 
     if mask is not None:
         mask = mask.astype(np.uint8)
@@ -278,14 +294,14 @@ class MP4Dataset(Dataset):
 
 
 
-def load_mp4s(config, data_path, train, n_shards, shard_id, mask):
+def load_mp4s(config, data_path, train, mask):
     split = 'train' if train else 'test'
     folder = osp.join(data_path, split, '*.mp4')
     fns = _glob_files(folder)
     random.Random(1234).shuffle(fns) 
     random.shuffle(fns)
     assert len(fns) > 0, f"Could not find any files for {folder}"
-    fns = np.array_split(fns, n_shards)[shard_id]
+    # fns = np.array_split(fns, n_shards)[shard_id]
 
     if mask is not None:
         mask = mask.astype(np.uint8)

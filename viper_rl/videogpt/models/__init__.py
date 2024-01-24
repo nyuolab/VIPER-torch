@@ -55,10 +55,9 @@ def load_vqgan(path, ae_config):
     # config = pickle.load(open(osp.join(path, 'args'), 'rb'))
     
     # Initialize the VQGAN model with the loaded configuration
-    device = ae_config['device']
-    model = VQGAN(**ae_config).to(device)  # Replace VQGAN with your PyTorch implementation
-    if ae_config['ddp']:
-       model = DDP(model, device_ids=[device])
+    model = VQGAN(**ae_config) # .to(device)  # Replace VQGAN with your PyTorch implementation
+    # if ae_config['ddp']:
+    #    model = DDP(model, device_ids=[device])
 
     # Load mask map if exists
     mask_file = osp.join(path, 'mask_map.pkl')
@@ -77,10 +76,10 @@ def load_vqgan(path, ae_config):
     if len(model_files):
         checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
         print("load vqgan weights from {}".format(checkpoint_path))
-        if ae_config['ddp']:
-            model.module.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
-        else:
-            model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+        # if ae_config['ddp']:
+        #     model.module.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+        # else:
+        model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
 
     return model, mask_map
 
@@ -88,12 +87,11 @@ def load_vqgan(path, ae_config):
 class AE:
     def __init__(self, path, ae_config):
         self.ddp = ae_config["ddp"]
-        self.device = ae_config["device"]
         path = osp.expanduser(path)
         self.ae, self.mask_map = load_vqgan(path, ae_config)  # Assuming load_vqgan is adapted for PyTorch
         # PyTorch doesn't have a direct equivalent of JAX's 'pmap' or 'jit' mode
-        if self.ddp:
-            self.ae = self.ae.module
+        # if self.ddp:
+        #     self.ae = self.ae.module
 
     def latent_shape(self, image_size):
         return self.ae.latent_shape(image_size) # (8, 8)

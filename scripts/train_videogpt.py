@@ -10,7 +10,7 @@ import yaml
 import pickle
 import random
 import wandb
-from datetime import datetime
+from datetime import datetime, timedelta
 import glob
 
 import torch
@@ -22,6 +22,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 # check: find . -maxdepth 1 -type d -name '*dmc_videogpt*'
 # find . -maxdepth 1 -type d -name '*dmc_videogpt*' -exec rm -rf {} \;
+
+os.environ['NCCL_DEBUG'] = 'INFO'
 
 directory = pathlib.Path(__file__).resolve()
 directory = directory.parent
@@ -65,8 +67,6 @@ def main(config):
     wandb.run.name = config.run_id
     wandb.run.save()
 
-    # dist.init_process_group(backend='nccl')
-
     train_dataset, class_map, _ = load_dataset(config, train=True, modality='video')
     test_dataset, class_map_test, _ = load_dataset(config, train=False, modality='video')
 
@@ -99,7 +99,6 @@ def main(config):
             print(f'Restored from checkpoint {os.path.join(config.ckpt)}, at iteration {config.start_iter}')
 
     if config.ddp:
-        dist.init_process_group(backend='nccl', world_size=world_size)
         torch.cuda.manual_seed_all(config.seed)
         mp.spawn(train_videogpt, args=(config, gpt, train_dataset, test_dataset), nprocs=world_size, join=True)
     else:
@@ -109,7 +108,7 @@ def main(config):
 def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
     world_size = config.num_device
     if config.ddp:
-        # dist.init_process_group(backend='nccl', rank=rank, world_size=world_size)
+        dist.init_process_group('gloo', rank=rank, world_size=world_size, timeout=timedelta(hours=1))
         # rank = dist.get_rank()
         print(f"Start running basic DDP on rank {rank}.")
         
@@ -148,7 +147,9 @@ def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
 
     while iteration < config.total_steps:
         # torch.manual_seed(iteration + random.randint(0, 100000))
-        iteration, gpt = train(iteration, gpt, train_loader, test_loader, sampler, config, device)        
+        iteration, gpt = train(iteration, gpt, train_loader, test_loader, sampler, config, device)   
+
+    dist.destroy_process_group()     
     
 
 def train_step(batch, gpt, device, step, ddp=False):

@@ -44,11 +44,8 @@ python scripts/train_videogpt.py -o viper_rl_data/checkpoints/dmc_videogpt_l16_s
 ```
 
 ## Policy training
-
-Checkpoints for various models can be found in `viper_rl/videogpt/reward_models/__init__.py`. To use one of these video models during policy optimization, simply specify it with the `--reward_model` argument.  e.g.
-
 ```
-python scripts/train_dreamer.py --configs=dmc_vision videogpt_prior_rb --task=dmc_cartpole_balance --reward_model=dmc_clen16_fskip4 --logdir=~/logdir
+python scripts/train_dreamer.py --configs=dmc_vision videogpt_prior_rb --task=dmc_walker_walk --reward_model=dmc_clen16_fskip4 --logdir=~/logdir
 ```
 
 Custom checkpoint directories can be specified with the `$VIPER_CHECKPOINT_DIR` environment variable. The default checkpoint path is set to `viper_rl_data/checkpoints/`.

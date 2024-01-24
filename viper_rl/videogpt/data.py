@@ -9,7 +9,7 @@ import random
 import pickle
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader, ConcatDataset
+from torch.utils.data import Dataset, DataLoader, ConcatDataset, DistributedSampler
 from torchvision import transforms
 from moviepy.editor import VideoFileClip
 
@@ -134,7 +134,7 @@ def prepare(dataset, batch_size, world_size, rank, ddp=True, initial_shape=None)
             dataset, 
             sampler=sampler,
             batch_size=batch_size, 
-            shuffle=True, # Shuffling the dataset
+            # shuffle=True, # Shuffling the dataset
             drop_last=True, # Dropping the last incomplete batch
             num_workers=os.cpu_count() // world_size, # os.cpu_count(), # Utilizing multiple CPU cores
             prefetch_factor=None, # Prefetching batches

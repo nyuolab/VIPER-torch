@@ -92,13 +92,15 @@ def main(config):
             checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
             print("load videogpt weights from {}".format(checkpoint_path))
             checkpoint = torch.load(checkpoint_path)
-            gpt.load_state_dict(checkpoint['model_state_dict'])
+            gpt.model.load_state_dict(checkpoint['model_state_dict'])
             # gpt.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             config.start_iter = checkpoint['iteration']
             print(f'Restored from checkpoint {os.path.join(config.ckpt)}, at iteration {config.start_iter}')
 
     if config.ddp:
+        dist.init_process_group(backend='nccl', world_size=world_size)
+        torch.cuda.manual_seed_all(config.seed)
         mp.spawn(train_videogpt, args=(config, gpt, train_dataset, test_dataset), nprocs=world_size, join=True)
     else:
         train_videogpt(0, config, gpt, train_dataset, test_dataset)
@@ -106,9 +108,8 @@ def main(config):
 
 def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
     world_size = config.num_device
-    torch.cuda.manual_seed_all(config.seed)
     if config.ddp:
-        dist.init_process_group(backend='nccl', rank=rank, world_size=world_size)
+        # dist.init_process_group(backend='nccl', rank=rank, world_size=world_size)
         # rank = dist.get_rank()
         print(f"Start running basic DDP on rank {rank}.")
         
@@ -345,12 +346,12 @@ if __name__ == '__main__':
     world_size = torch.cuda.device_count()
 
     if torch.cuda.is_available():
-        if dist.is_available() and dist.is_initialized():
-            # If using PyTorch Distributed Data Parallel (DDP)
-            print(f'PyTorch process: {dist.get_rank()} / {dist.get_world_size()}')
-        else:
-            # If not using DDP, the concept of process index/count doesn't directly apply
-            print('PyTorch process: N/A (not using Distributed Data Parallel)')
+        # if dist.is_available() and dist.is_initialized():
+        #     # If using PyTorch Distributed Data Parallel (DDP)
+        #     print(f'PyTorch process: {dist.get_rank()} / {dist.get_world_size()}')
+        # else:
+        #     # If not using DDP, the concept of process index/count doesn't directly apply
+        #     print('PyTorch process: N/A (not using Distributed Data Parallel)')
         
         print(f'Total CUDA devices: {world_size}')
         print(f'Current CUDA device index: {torch.cuda.current_device()}')

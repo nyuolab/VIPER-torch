@@ -303,7 +303,8 @@ class VideoGPTRewardModel:
 
     def process_images(self, image_batch):
         if image_batch.shape[-1] <= 3:
-            image_batch = np.transpose(image_batch, (0, 3, 1, 2))
+            new_axes = tuple(range(image_batch.ndim - 3)) + (image_batch.ndim - 1, image_batch.ndim - 3, image_batch.ndim - 2)
+            image_batch = np.transpose(image_batch, new_axes)
         image_batch = torch.tensor(image_batch, dtype=torch.uint8).to(self.device)
         # if image_batch.shape[-1] <= 3:
         #     image_batch = torch.permute(image_batch, (0, 3, 1, 2))

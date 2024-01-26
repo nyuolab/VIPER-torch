@@ -23,7 +23,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 # check: find . -maxdepth 1 -type d -name '*dmc_videogpt*'
 # find . -maxdepth 1 -type d -name '*dmc_videogpt*' -exec rm -rf {} \;
 
-os.environ['NCCL_DEBUG'] = 'INFO'
+# os.environ['NCCL_DEBUG'] = 'INFO'
+os.environ['GLOO_SOCKET_IFNAME'] = 'eth0'  # Replace 'eth0' with your interface name
+os.environ['GLOO_LOG_LEVEL'] = 'DEBUG'
 
 directory = pathlib.Path(__file__).resolve()
 directory = directory.parent
@@ -99,7 +101,6 @@ def main(config):
             print(f'Restored from checkpoint {os.path.join(config.ckpt)}, at iteration {config.start_iter}')
 
     if config.ddp:
-        torch.cuda.manual_seed_all(config.seed)
         mp.spawn(train_videogpt, args=(config, gpt, train_dataset, test_dataset), nprocs=world_size, join=True)
     else:
         train_videogpt(0, config, gpt, train_dataset, test_dataset)
@@ -107,15 +108,17 @@ def main(config):
 
 def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
     world_size = config.num_device
+    # dist.init_process_group(backend='gloo', rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=5))
     if config.ddp:
-        dist.init_process_group('gloo', rank=rank, world_size=world_size, timeout=timedelta(hours=1))
         # rank = dist.get_rank()
         print(f"Start running basic DDP on rank {rank}.")
-        
+        dist.init_process_group(backend='gloo', rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=5))
         # create model and move it to GPU with id rank
         device = rank % config.num_device
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    torch.cuda.manual_seed_all(config.seed)
 
     train_loader = prepare(train_dataset, config.batch_size, world_size, rank, ddp=config.ddp)
     test_loader = prepare(test_dataset, config.batch_size, world_size, rank, ddp=config.ddp)
@@ -125,7 +128,6 @@ def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
     gpt.model.device = device
     gpt.ae.device = device
 
-    # gpt.to(device)
     gpt.model.to(device)
     gpt.optimizer = torch.optim.AdamW(gpt.model.parameters(), lr=config.lr)
     gpt.ae.ae.to(device)
@@ -137,7 +139,7 @@ def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
         gpt.ae.ae = gpt.ae.ae.module
         gpt.model = DDP(gpt.model, device_ids=[device])
     sampler = VideoGPTSampler(gpt)
-   
+
     if config.ddp: 
         print_model_size(gpt.model.module)
     else:   

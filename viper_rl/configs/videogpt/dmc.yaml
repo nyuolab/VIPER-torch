@@ -20,7 +20,7 @@ image_size: 64
 seq_len: 16
 frame_skip: 1
 ae_ckpt: "viper_rl_data/checkpoints/dmc_vqgan"
-ddp: True
+ddp: False
 
 ae:
   image_size: 64

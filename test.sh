@@ -14,3 +14,6 @@ source mdj.sh
 
 which python
 xvfb-run python env_test.py
+
+# find . -maxdepth 1 -type d -name '*slurm*' -exec rm -rf {} \;
+

@@ -26,13 +26,14 @@ def load_videogpt(path, config, ae_config, ae=None, replicate=True):
     
     # config.ae = ae_config
     # Initialize the VideoGPT model
-    model = VideoGPT(config, ae)
+    gpt = VideoGPT(config, ae)
 
     # Load class mapping file if exists
     class_file = osp.join(path, 'class_map.pkl')
     if osp.exists(class_file):
         class_map = pickle.load(open(class_file, 'rb'))
         class_map = {k: int(v) for k, v in class_map.items()}
+        
     else:
         class_map = None
 
@@ -41,14 +42,14 @@ def load_videogpt(path, config, ae_config, ae=None, replicate=True):
     if len(model_files):
         checkpoint_path = sorted(model_files, key=extract_iteration)[-1]
         print("load videogpt weights from {}".format(checkpoint_path))
-        model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+        gpt.model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
 
         # If replicate is True and using distributed training, replicate the model as needed
         # if replicate:
         #     # Adjust this part based on your distributed training setup in PyTorch
         #     pass
 
-    return model, class_map
+    return gpt, class_map
 
 def load_vqgan(path, ae_config):
     # Load configuration

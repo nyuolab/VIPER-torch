@@ -784,59 +784,6 @@ def simulate(
     return (step - steps, episode - episodes, done, length, obs, agent_state, reward)
 
 
-class CollectDataset:
-    def __init__(
-        self, env, mode, train_eps, eval_eps=dict(), callbacks=None, precision=32
-    ):
-        self._env = env
-        self._callbacks = callbacks or ()
-        self._precision = precision
-        self._episode = None
-        self._cache = dict(train=train_eps, eval=eval_eps)[mode]
-        self._temp_name = str(uuid.uuid4())
-
-    def __getattr__(self, name):
-        return getattr(self._env, name)
-
-    def step(self, action):
-        obs, reward, done, info = self._env.step(action)
-        obs = {k: self._convert(v) for k, v in obs.items()}
-        transition = obs.copy()
-        if isinstance(action, dict):
-            transition.update(action)
-        else:
-            transition["action"] = action
-        transition["reward"] = reward
-        transition["discount"] = info.get("discount", np.array(1 - float(done)))
-        self._episode.append(transition)
-        self.add_to_cache(transition)
-        if done:
-            # detele transitions before whole episode is stored
-            del self._cache[self._temp_name]
-            self._temp_name = str(uuid.uuid4())
-            for key, value in self._episode[1].items():
-                if key not in self._episode[0]:
-                    self._episode[0][key] = 0 * value
-            episode = {k: [t[k] for t in self._episode] for k in self._episode[0]}
-            episode = {k: self._convert(v) for k, v in episode.items()}
-            info["episode"] = episode
-            for callback in self._callbacks:
-                callback(episode)
-        return obs, reward, done, info
-
-    def reset(self):
-        obs = self._env.reset()
-        transition = obs.copy()
-        # missing keys will be filled with a zeroed out version of the first
-        # transition, because we do not know what action information the agent will
-        # pass yet.
-        transition["reward"] = 0.0
-        transition["discount"] = 1.0
-        self._episode = [transition]
-        self.add_to_cache(transition)
-        return obs
-
-
 def add_to_cache(cache, id, transition):
     if id not in cache:
         cache[id] = dict()
@@ -1192,6 +1139,7 @@ class DiscDist:
         above = len(self.buckets) - torch.sum(
             (self.buckets > x[..., None]).to(torch.int32), dim=-1
         )
+        # this is implemented using clip at the original repo as the gradients are not backpropagated for the out of limits.
         below = torch.clip(below, 0, len(self.buckets) - 1)
         above = torch.clip(above, 0, len(self.buckets) - 1)
         equal = below == above
@@ -1277,10 +1225,11 @@ class SymlogDist:
 
 
 class ContDist:
-    def __init__(self, dist=None):
+    def __init__(self, dist=None, absmax=None):
         super().__init__()
         self._dist = dist
         self.mean = dist.mean
+        self.absmax = absmax
 
     def __getattr__(self, name):
         return getattr(self._dist, name)
@@ -1289,10 +1238,16 @@ class ContDist:
         return self._dist.entropy()
 
     def mode(self):
-        return self._dist.mean
+        out = self._dist.mean
+        if self.absmax is not None:
+            out *= (self.absmax / torch.clip(torch.abs(out), min=self.absmax)).detach()
+        return out
 
     def sample(self, sample_shape=()):
-        return self._dist.rsample(sample_shape)
+        out = self._dist.rsample(sample_shape)
+        if self.absmax is not None:
+            out *= (self.absmax / torch.clip(torch.abs(out), min=self.absmax)).detach()
+        return out
 
     def log_prob(self, x):
         return self._dist.log_prob(x)
@@ -1322,7 +1277,8 @@ class Bernoulli:
         log_probs0 = -F.softplus(_logits)
         log_probs1 = -F.softplus(-_logits)
 
-        return log_probs0 * (1 - x) + log_probs1 * x
+        # return log_probs0 * (1 - x) + log_probs1 * x
+        return torch.sum(log_probs0 * (1 - x) + log_probs1 * x, -1)
 
 
 class UnnormalizedHuber(torchd.normal.Normal):
@@ -1454,12 +1410,14 @@ class Optimizer:
         }[opt]()
         self._scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
 
-    def __call__(self, loss, params, retain_graph=False):
+    def __call__(self, loss, params, retain_graph=True):
         assert len(loss.shape) == 0, loss.shape
         metrics = {}
         metrics[f"{self._name}_loss"] = loss.detach().cpu().numpy()
-        self._scaler.scale(loss).backward()
+        # self._scaler.scale(loss).backward()
         # accelerator.backward(self._scaler.scale(loss))
+        self._opt.zero_grad()
+        self._scaler.scale(loss).backward(retain_graph=retain_graph)
         self._scaler.unscale_(self._opt)
         # loss.backward(retain_graph=retain_graph)
         norm = torch.nn.utils.clip_grad_norm_(params, self._clip)
@@ -1554,37 +1512,6 @@ def static_scan(fn, inputs, start):
     return outputs
 
 
-# Original version
-# def static_scan2(fn, inputs, start, reverse=False):
-#  last = start
-#  outputs = [[] for _ in range(len([start] if type(start)==type({}) else start))]
-#  indices = range(inputs[0].shape[0])
-#  if reverse:
-#    indices = reversed(indices)
-#  for index in indices:
-#    inp = lambda x: (_input[x] for _input in inputs)
-#    last = fn(last, *inp(index))
-#    [o.append(l) for o, l in zip(outputs, [last] if type(last)==type({}) else last)]
-#  if reverse:
-#    outputs = [list(reversed(x)) for x in outputs]
-#  res = [[]] * len(outputs)
-#  for i in range(len(outputs)):
-#    if type(outputs[i][0]) == type({}):
-#      _res = {}
-#      for key in outputs[i][0].keys():
-#        _res[key] = []
-#        for j in range(len(outputs[i])):
-#          _res[key].append(outputs[i][j][key])
-#        #_res[key] = torch.stack(_res[key], 0)
-#        _res[key] = faster_stack(_res[key], 0)
-#    else:
-#      _res = outputs[i]
-#      #_res = torch.stack(_res, 0)
-#      _res = faster_stack(_res, 0)
-#    res[i] = _res
-#  return res
-
-
 class Every:
     def __init__(self, every):
         self._every = every
@@ -1622,32 +1549,6 @@ class Until:
         return step < self._until
 
 
-def schedule(string, step):
-    try:
-        return float(string)
-    except ValueError:
-        match = re.match(r"linear\((.+),(.+),(.+)\)", string)
-        if match:
-            initial, final, duration = [float(group) for group in match.groups()]
-            mix = torch.clip(torch.Tensor([step / duration]), 0, 1)[0]
-            return (1 - mix) * initial + mix * final
-        match = re.match(r"warmup\((.+),(.+)\)", string)
-        if match:
-            warmup, value = [float(group) for group in match.groups()]
-            scale = torch.clip(step / warmup, 0, 1)
-            return scale * value
-        match = re.match(r"exp\((.+),(.+),(.+)\)", string)
-        if match:
-            initial, final, halflife = [float(group) for group in match.groups()]
-            return (initial - final) * 0.5 ** (step / halflife) + final
-        match = re.match(r"horizon\((.+),(.+),(.+)\)", string)
-        if match:
-            initial, final, duration = [float(group) for group in match.groups()]
-            mix = torch.clip(step / duration, 0, 1)
-            horizon = (1 - mix) * initial + mix * final
-            return 1 - 1 / horizon
-        raise NotImplementedError(string)
-
 # Initialize model weights
 def weight_init(m):
     if isinstance(m, nn.Linear):
@@ -1668,7 +1569,9 @@ def weight_init(m):
         denoms = (in_num + out_num) / 2.0
         scale = 1.0 / denoms
         std = np.sqrt(scale) / 0.87962566103423978
-        nn.init.trunc_normal_(m.weight.data, mean=0.0, std=std, a=-2.0, b=2.0)
+        nn.init.trunc_normal_(
+            m.weight.data, mean=0.0, std=std, a=-2.0 * std, b=2.0 * std
+        )
         if hasattr(m.bias, "data"):
             m.bias.data.fill_(0.0)
     elif isinstance(m, nn.LayerNorm):
@@ -1682,6 +1585,16 @@ def uniform_weight_init(given_scale):
         if isinstance(m, nn.Linear):
             in_num = m.in_features
             out_num = m.out_features
+            denoms = (in_num + out_num) / 2.0
+            scale = given_scale / denoms
+            limit = np.sqrt(3 * scale)
+            nn.init.uniform_(m.weight.data, a=-limit, b=limit)
+            if hasattr(m.bias, "data"):
+                m.bias.data.fill_(0.0)
+        elif isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+            space = m.kernel_size[0] * m.kernel_size[1]
+            in_num = space * m.in_channels
+            out_num = space * m.out_channels
             denoms = (in_num + out_num) / 2.0
             scale = given_scale / denoms
             limit = np.sqrt(3 * scale)
@@ -1719,3 +1632,40 @@ def enable_deterministic_run():
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True)
+
+def recursively_collect_optim_state_dict(
+    obj, path="", optimizers_state_dicts=None, visited=set()
+):
+    if optimizers_state_dicts is None:
+        optimizers_state_dicts = {}
+    # avoid cyclic reference
+    if id(obj) in visited:
+        return optimizers_state_dicts
+    else:
+        visited.add(id(obj))
+    attrs = obj.__dict__
+    if isinstance(obj, torch.nn.Module):
+        attrs.update(
+            {k: attr for k, attr in obj.named_modules() if "." not in k and obj != attr}
+        )
+    for name, attr in attrs.items():
+        new_path = path + "." + name if path else name
+        if isinstance(attr, torch.optim.Optimizer):
+            optimizers_state_dicts[new_path] = attr.state_dict()
+        elif hasattr(attr, "__dict__"):
+            optimizers_state_dicts.update(
+                recursively_collect_optim_state_dict(
+                    attr, new_path, optimizers_state_dicts, visited
+                )
+            )
+    return optimizers_state_dicts
+
+def recursively_load_optim_state_dict(obj, optimizers_state_dicts):
+    print(optimizers_state_dicts)
+    for path, state_dict in optimizers_state_dicts.items():
+        keys = path.split(".")
+        obj_now = obj
+        for key in keys:
+            obj_now = getattr(obj_now, key)
+        print(keys)
+        obj_now.load_state_dict(state_dict)

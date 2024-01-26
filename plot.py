@@ -13,19 +13,20 @@ if __name__ == "__main__":
     # env = 'minecraft_diamond'
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", dest='env', type=str, default="crafter_reward")
-    parser.add_argument("--mode", dest='mode', type=str,  default="eval")
+    parser.add_argument("--env", dest='env', type=str, default="dmc_walker_walk")
+    parser.add_argument("--mode", dest='mode', type=str,  default="train")
     args = parser.parse_args()
     
     env = args.env
     mode = args.mode
 
     return_mode = "{}_return".format(mode)
-    plot_txt = 'plots/{0}_rewards.png'.format(env)
+    plot_txt = 'plots/viper_{0}_rewards.png'.format(env)
     
-    methods = ["vanilla", "0.05-greedy", "0.5-0.05 decay"]
+    methods = ["vanilla", "viper"]
+    # methods = ["vanilla", "0.05-greedy", "0.5-0.05 decay"]
     # methods = ["inf_life", "inf_life_curiosity"]
-    seeds = ["","1","2"]
+    seeds = ["0","1"]
 
     rmin = 0
     rmax = 0

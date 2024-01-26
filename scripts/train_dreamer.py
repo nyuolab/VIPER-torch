@@ -125,7 +125,7 @@ def main(config):
     tools.set_seed_everywhere(config.seed)
     if config.deterministic_run:
         tools.enable_deterministic_run()
-    config.logdir += str(config.seed)
+    config.logdir += '/{0}{1}'.format(config.task, config.seed)
     logdir = pathlib.Path(config.logdir).expanduser()
     config.traindir = config.traindir or logdir / "train_eps"
     config.evaldir = config.evaldir or logdir / "eval_eps"
@@ -172,8 +172,8 @@ def main(config):
     # )
     transformer_config = dict2obj(yaml.safe_load(open("viper_rl/configs/videogpt/dmc.yaml", 'r')))
 
-    transformer_config.device = device
-    config.ae["device"] = device
+    # transformer_config.device = device
+    # config.ae["device"] = device
 
     if config.reward_model != 'none':
         print(f'Loading reward model {config.reward_model}')
@@ -233,7 +233,19 @@ def main(config):
 
     # print(acts)
     # video_encoder = VMAEEncoder(num_frames=config.video_len)
-    
+    # initialize
+    transformer_config.device = device
+    if reward_model:
+        reward_model.gpt.device = device
+        reward_model.gpt.model.device = device
+        reward_model.gpt.ae.device = device
+        
+        reward_model.gpt.model.to(device)
+        reward_model.gpt.optimizer = torch.optim.AdamW(reward_model.gpt.model.parameters(), lr=transformer_config.lr)
+        reward_model.gpt.ae.ae.to(device)
+        reward_model.gpt.model.position_bias_to_device()
+        reward_model.gpt.init_ema_params()
+
     state = None
     if not config.offline_traindir:
         prefill = max(0, config.prefill - count_steps(config.traindir))
@@ -371,7 +383,7 @@ if __name__ == "__main__":
     print("The number of available gpus is {}".format(torch.cuda.device_count()))
     print("The number of available cpus is {}".format(os.cpu_count()))
     parser = argparse.ArgumentParser()
-    parser.add_argument("--configs", nargs="+")
+    parser.add_argument("--configs", nargs='+')
     args, remaining = parser.parse_known_args()
     
     configs = yaml.safe_load(
@@ -385,8 +397,8 @@ if __name__ == "__main__":
             else:
                 base[key] = value
 
-
-    name_list = ["defaults", *args.configs] if args.configs else ["defaults"]
+    print(args.configs)
+    name_list = ["defaults", "videogpt_prior_rb", *args.configs] if args.configs else ["defaults", "videogpt_prior_rb"]
     defaults = {}
     for name in name_list:
         recursive_update(defaults, configs[name])

@@ -17,18 +17,13 @@ class RSSM(nn.Module):
         stoch=30,
         deter=200,
         hidden=200,
-        layers_input=1,
-        layers_output=1,
         rec_depth=1,
-        shared=False,
         discrete=False,
         act="SiLU", # silu(x) = x * sigmoid(x)
-        norm="LayerNorm",
+        norm=True,
         mean_act="none",
         std_act="softplus",
-        temp_post=True, # temporal posterior
         min_std=0.1,
-        cell="gru",
         unimix_ratio=0.01,
         initial="learned",
         num_actions=None,
@@ -41,18 +36,14 @@ class RSSM(nn.Module):
         self._deter = deter # h: deterministic state dim
         self._hidden = hidden # h: hidden state dim
         self._min_std = min_std
-        self._layers_input = layers_input
-        self._layers_output = layers_output
         self._rec_depth = rec_depth
-        self._shared = shared
         self._discrete = discrete # discrete action space?
         act = getattr(torch.nn, act) # torch.nn.SiLU
-        norm = getattr(torch.nn, norm) # torch.nn.LayerNorm
         self._mean_act = mean_act
         self._std_act = std_act
-        self._temp_post = temp_post
         self._unimix_ratio = unimix_ratio # Unimix categoricals: Mixtures of 1% uniform and 99% neural network output
         self._initial = initial
+        self._num_actions = num_actions
         self._embed = embed
         self._device = device
         # self.video_len = video_len
@@ -69,67 +60,59 @@ class RSSM(nn.Module):
         else:
             inp_dim = self._stoch + num_actions # *self.video_len
 
-        if self._shared:
-            inp_dim += self._embed
-        for i in range(self._layers_input):
-            inp_layers.append(nn.Linear(inp_dim, self._hidden, bias=False))
-            inp_layers.append(norm(self._hidden, eps=1e-03))
-            inp_layers.append(act())
-            if i == 0:
-                inp_dim = self._hidden
-        self._inp_layers = nn.Sequential(*inp_layers)
-        self._inp_layers.apply(tools.weight_init)
+        inp_layers.append(nn.Linear(inp_dim, self._hidden, bias=False))
+        if norm:
+            inp_layers.append(nn.LayerNorm(self._hidden, eps=1e-03))
+        inp_layers.append(act())
 
+        self._img_in_layers = nn.Sequential(*inp_layers)
+        self._img_in_layers.apply(tools.weight_init)
         # Deterministic GRU state
-        if cell == "gru":
-            self._cell = GRUCell(self._hidden, self._deter)
-            self._cell.apply(tools.weight_init)
-        elif cell == "gru_layer_norm":
-            self._cell = GRUCell(self._hidden, self._deter, norm=True)
-            self._cell.apply(tools.weight_init)
-        else:
-            raise NotImplementedError(cell)
+        self._cell = GRUCell(self._hidden, self._deter, norm=norm)
+        self._cell.apply(tools.weight_init)
 
         # input hidden deterministic state dim
         # activations: linear + layernorm + SiLU
         img_out_layers = []
         inp_dim = self._deter
-        for i in range(self._layers_output):
-            img_out_layers.append(nn.Linear(inp_dim, self._hidden, bias=False))
-            img_out_layers.append(norm(self._hidden, eps=1e-03))
-            img_out_layers.append(act())
-            if i == 0:
-                inp_dim = self._hidden
+        img_out_layers.append(nn.Linear(inp_dim, self._hidden, bias=False))
+        if norm:
+            img_out_layers.append(nn.LayerNorm(self._hidden, eps=1e-03))
+        img_out_layers.append(act())
         
         self._img_out_layers = nn.Sequential(*img_out_layers)
         self._img_out_layers.apply(tools.weight_init)
 
         # Same as above, but why?
         obs_out_layers = []
-        if self._temp_post:
-            inp_dim = self._deter + self._embed
-        else:
-            inp_dim = self._embed
-        for i in range(self._layers_output):
-            obs_out_layers.append(nn.Linear(inp_dim, self._hidden, bias=False))
-            obs_out_layers.append(norm(self._hidden, eps=1e-03))
-            obs_out_layers.append(act())
-            if i == 0:
-                inp_dim = self._hidden
+        inp_dim = self._deter + self._embed
+        obs_out_layers.append(nn.Linear(inp_dim, self._hidden, bias=False))
+        if norm:
+            obs_out_layers.append(nn.LayerNorm(self._hidden, eps=1e-03))
+        obs_out_layers.append(act())
         self._obs_out_layers = nn.Sequential(*obs_out_layers)
         self._obs_out_layers.apply(tools.weight_init)
 
         # Why do ims_stat_layer(image?) and obs_stat_layer(vector obs?) have the same logistics?
         if self._discrete:
             self._ims_stat_layer = nn.Linear(self._hidden, self._stoch * self._discrete)
-            self._ims_stat_layer.apply(tools.weight_init)
+            # self._ims_stat_layer.apply(tools.weight_init)
+            self._imgs_stat_layer = nn.Linear(
+                self._hidden, self._stoch * self._discrete
+            )
+            self._imgs_stat_layer.apply(tools.uniform_weight_init(1.0))
+
             self._obs_stat_layer = nn.Linear(self._hidden, self._stoch * self._discrete)
-            self._obs_stat_layer.apply(tools.weight_init)
+            self._obs_stat_layer.apply(tools.uniform_weight_init(1.0))
+            # self._obs_stat_layer.apply(tools.weight_init)
         else:
-            self._ims_stat_layer = nn.Linear(self._hidden, 2 * self._stoch)
-            self._ims_stat_layer.apply(tools.weight_init)
+            self._imgs_stat_layer = nn.Linear(self._hidden, 2 * self._stoch)
+            # self._ims_stat_layer.apply(tools.weight_init)
+            self._imgs_stat_layer.apply(tools.uniform_weight_init(1.0))
             self._obs_stat_layer = nn.Linear(self._hidden, 2 * self._stoch)
-            self._obs_stat_layer.apply(tools.weight_init)
+            # self._obs_stat_layer.apply(tools.weight_init)
+            self._obs_stat_layer.apply(tools.uniform_weight_init(1.0))
+
 
         if self._initial == "learned":
             self.W = torch.nn.Parameter(
@@ -166,15 +149,10 @@ class RSSM(nn.Module):
         else:
             raise NotImplementedError(self._initial)
 
-    def observe(self, embed, action, is_first, state=None, swap=True):
-
-        if state is None:
-            state = self.initial(action.shape[0])
-        
-        # (batch, time, ch) -> (time, batch, ch)
-        if swap:
-            swap = lambda x: x.permute([1, 0] + list(range(2, len(x.shape))))
-            embed, action, is_first = swap(embed), swap(action), swap(is_first)
+    def observe(self, embed, action, is_first, state=None):
+        swap = lambda x: x.permute([1, 0] + list(range(2, len(x.shape))))
+            # (batch, time, ch) -> (time, batch, ch)
+        embed, action, is_first = swap(embed), swap(action), swap(is_first)
         # prev_state[0] means selecting posterior of return(posterior, prior) from obs_step
         post, prior = tools.static_scan(
             lambda prev_state, prev_act, embed, is_first: self.obs_step(
@@ -225,11 +203,14 @@ class RSSM(nn.Module):
         return dist
 
     def obs_step(self, prev_state, prev_action, embed, is_first, sample=True):
-        # if shared is True, prior and post both use same networks(inp_layers, _img_out_layers, _ims_stat_layer)
-        # otherwise, post use different network(_obs_out_layers) with prior[deter] and embed as inputs
-        prev_action *= (1.0 / torch.clip(torch.abs(prev_action), min=1.0)).detach()
-
-        if torch.sum(is_first) > 0:
+        # initialize all prev_state
+        if prev_state == None or torch.sum(is_first) == len(is_first):
+            prev_state = self.initial(len(is_first))
+            prev_action = torch.zeros((len(is_first), self._num_actions)).to(
+                self._device
+            )
+        # overwrite the prev_state only where is_first=True
+        elif torch.sum(is_first) > 0:
             is_first = is_first[:, None]
             prev_action *= 1.0 - is_first
             init_state = self.initial(len(is_first))
@@ -246,49 +227,37 @@ class RSSM(nn.Module):
                     val * (1.0 - is_first_r) + init_state[key] * is_first_r
                 )
 
-        prior = self.img_step(prev_state, prev_action, None, sample)
-        if self._shared:
-            post = self.img_step(prev_state, prev_action, embed, sample)
+        prior = self.img_step(prev_state, prev_action)
+        x = torch.cat([prior["deter"], embed], -1)
+        # (batch_size, prior_deter + embed) -> (batch_size, hidden)
+        x = self._obs_out_layers(x)
+        # (batch_size, hidden) -> (batch_size, stoch, discrete_num)
+        stats = self._suff_stats_layer("obs", x)
+        if sample:
+            stoch = self.get_dist(stats).sample()
         else:
-            if self._temp_post:
-                x = torch.cat([prior["deter"], embed], -1)
-            else:
-                x = embed
-            # (batch_size, prior_deter + embed) -> (batch_size, hidden)
-            x = self._obs_out_layers(x)
-            # (batch_size, hidden) -> (batch_size, stoch, discrete_num)
-            stats = self._suff_stats_layer("obs", x)
-            if sample:
-                stoch = self.get_dist(stats).sample()
-            else:
-                stoch = self.get_dist(stats).mode()
-            post = {"stoch": stoch, "deter": prior["deter"], **stats}
+            stoch = self.get_dist(stats).mode()
+        post = {"stoch": stoch, "deter": prior["deter"], **stats}
         return post, prior
 
     # this is used for making future image, outputs next step z and h
-    def img_step(self, prev_state, prev_action, embed=None, sample=True):
+    def img_step(self, prev_state, prev_action, sample=True):
         # (batch, stoch, discrete_num)
         # if isinstance(prev_action , list):
         #     prev_action = tools.for_loop_parallel(prev_action, lambda pre_act: pre_act*(1.0 / torch.clip(torch.abs(prev_act), min=1.0)).detach())
         #     # prev_action *= (1.0 / torch.clip(torch.abs(prev_action), min=1.0)).detach()
         # else:
         
-        prev_action *= (1.0 / torch.clip(torch.abs(prev_action), min=1.0)).detach()
+        # prev_action *= (1.0 / torch.clip(torch.abs(prev_action), min=1.0)).detach()
         prev_stoch = prev_state["stoch"]
         if self._discrete:
             shape = list(prev_stoch.shape[:-2]) + [self._stoch * self._discrete]
             # (batch, stoch, discrete_num) -> (batch, stoch * discrete_num)
             prev_stoch = prev_stoch.reshape(shape)
-        if self._shared:
-            if embed is None:
-                shape = list(prev_action.shape[:-1]) + [self._embed]
-                embed = torch.zeros(shape)
-            # (batch, stoch * discrete_num) -> (batch, stoch * discrete_num + action, embed)
-            x = torch.cat([prev_stoch, prev_action, embed], -1)
-        else:
-            x = torch.cat([prev_stoch, prev_action], -1)
+        # (batch, stoch * discrete_num) -> (batch, stoch * discrete_num + action)
+        x = torch.cat([prev_stoch, prev_action], -1)
         # (batch, stoch * discrete_num + action, embed) -> (batch, hidden)
-        x = self._inp_layers(x)
+        x = self._img_in_layers(x)
         for _ in range(self._rec_depth):  # rec depth is not correctly implemented
             deter = prev_state["deter"]
             # (batch, hidden), (batch, deter) -> (batch, deter), (batch, deter)
@@ -314,7 +283,7 @@ class RSSM(nn.Module):
     def _suff_stats_layer(self, name, x):
         if self._discrete:
             if name == "ims":
-                x = self._ims_stat_layer(x)
+                x = self._imgs_stat_layer(x)
             elif name == "obs":
                 x = self._obs_stat_layer(x)
             else:
@@ -323,7 +292,7 @@ class RSSM(nn.Module):
             return {"logit": logit}
         else:
             if name == "ims":
-                x = self._ims_stat_layer(x)
+                x = self._imgs_stat_layer(x)
             elif name == "obs":
                 x = self._obs_stat_layer(x)
             else:
@@ -355,86 +324,88 @@ class RSSM(nn.Module):
             dist(sg(post)) if self._discrete else dist(sg(post))._dist,
             dist(prior) if self._discrete else dist(prior)._dist,
         )
-        rep_loss = torch.mean(torch.clip(rep_loss, min=free))
-        dyn_loss = torch.mean(torch.clip(dyn_loss, min=free))
+        # this is implemented using maximum at the original repo as the gradients are not backpropagated for the out of limits.
+        rep_loss = torch.clip(rep_loss, min=free)
+        dyn_loss = torch.clip(dyn_loss, min=free)
+
         loss = dyn_scale * dyn_loss + rep_scale * rep_loss
 
         return loss, value, dyn_loss, rep_loss
 
-class Discriminator(nn.Module):
-    def __init__(
-        self,
-        shapes,
-        cnn_keys=r".*",
-        act="SiLU",
-        norm="LayerNorm",
-        mlp_layers=4,
-        mlp_units=512,
-        cnn="resnet",
-        cnn_depth=48,
-        kernel_size=4,
-        cnn_blocks=2,
-        resize="stride",
-        symlog_inputs=False,
-        minres=4,
-        # **kw,
-    ):
-        excluded = r"(is_first|is_last)"
-        shapes = {
-            k: v
-            for k, v in shapes.items()
-            if (not re.match(excluded, k) and not k.startswith("log_"))
-        }
+# class Discriminator(nn.Module):
+#     def __init__(
+#         self,
+#         shapes,
+#         cnn_keys=r".*",
+#         act="SiLU",
+#         norm="LayerNorm",
+#         mlp_layers=4,
+#         mlp_units=512,
+#         cnn="resnet",
+#         cnn_depth=48,
+#         kernel_size=4,
+#         cnn_blocks=2,
+#         resize="stride",
+#         symlog_inputs=False,
+#         minres=4,
+#         # **kw,
+#     ):
+#         excluded = r"(is_first|is_last)"
+#         shapes = {
+#             k: v
+#             for k, v in shapes.items()
+#             if (not re.match(excluded, k) and not k.startswith("log_"))
+#         }
         
-        input_ch = sum([v[-1] for v in self.cnn_shapes.values()])
-        input_shape = tuple(self.cnn_shapes.values())[0][:2] + (input_ch,)
+#         input_ch = sum([v[-1] for v in self.cnn_shapes.values()])
+#         input_shape = tuple(self.cnn_shapes.values())[0][:2] + (input_ch,)
         
-        self.cnn_shapes = {
-            k: v for k, v in shapes.items() if (len(v) == 3 and re.match(cnn_keys, k))
-        }
-        self.shapes = self.cnn_shapes
-        print("Discriminator CNN shapes:", self.cnn_shapes)
+#         self.cnn_shapes = {
+#             k: v for k, v in shapes.items() if (len(v) == 3 and re.match(cnn_keys, k))
+#         }
+#         self.shapes = self.cnn_shapes
+#         print("Discriminator CNN shapes:", self.cnn_shapes)
         
-        input_ch = sum([v[-1] for v in self.cnn_shapes.values()])
-        input_shape = tuple(self.cnn_shapes.values())[0][:2] + (input_ch,)
+#         input_ch = sum([v[-1] for v in self.cnn_shapes.values()])
+#         input_shape = tuple(self.cnn_shapes.values())[0][:2] + (input_ch,)
 
-        if cnn == "resnet":
-            self._cnn = ConvEncoder(input_shape, depth=cnn_depth, act=act, norm=norm, kernel_size=4, minres=4)
-        else:
-            raise NotImplementedError(cnn)
-        # logit_kw = {**kw, "symlog_inputs": symlog_inputs, "name": "logit_mlp"}
-        input_dim = input_shape[:2] + (self._cnn.outdim,)
+#         if cnn == "resnet":
+#             self._cnn = ConvEncoder(input_shape, depth=cnn_depth, act=act, norm=norm, kernel_size=4, minres=4)
+#         else:
+#             raise NotImplementedError(cnn)
+#         # logit_kw = {**kw, "symlog_inputs": symlog_inputs, "name": "logit_mlp"}
+#         input_dim = input_shape[:2] + (self._cnn.outdim,)
 
-        self._logit_mlp = MLP(
-            input_dim, 
-            None, 
-            layers=mlp_layers, 
-            units=mlp_units, 
-            act=act,
-            norm=norm,
-            symlog_inputs=symlog_inputs,
-            name="discMLP",
-        )
-        # self._logit_mlp.outdim
-        self.disc_logit = nn.Linear(in_features=mlp_units, out_features=1, bias=False)
+#         self._logit_mlp = MLP(
+#             input_dim, 
+#             None, 
+#             layers=mlp_layers, 
+#             units=mlp_units, 
+#             act=act,
+#             norm=norm,
+#             symlog_inputs=symlog_inputs,
+#             name="discMLP",
+#         )
+#         # self._logit_mlp.outdim
+#         self.disc_logit = nn.Linear(in_features=mlp_units, out_features=1, bias=False)
 
-    def forward(self, data):
-        some_key, some_shape = list(self.shapes.items())[0]
-        batch_dims = data[some_key].shape[: -(1 + len(some_shape))]
-        data = {
-            k: v.reshape((-1,) + v.shape[len(batch_dims) :]) for k, v in data.items()
-        }
-        inputs = torch.cat([data[k] for k in self.cnn_shapes], -1)
-        inputs = torch.transpose(inputs, (0, 2, 3, 1, 4))
-        inputs = torch.reshape(inputs, inputs.shape[:3] + (np.prod(inputs.shape[3:]),))
-        output = self._cnn(inputs)
-        print(output.shape)
-        output = output.reshape((output.shape[0], -1))
-        output = output.reshape(batch_dims + output.shape[1:])
-        logits = self._logit_mlp(output)
-        projection = self.disc_logit(logits)
-        # projection = projection.reshape(projection.shape[:-1])
-        return projection
+#     def forward(self, data):
+#         some_key, some_shape = list(self.shapes.items())[0]
+#         batch_dims = data[some_key].shape[: -(1 + len(some_shape))]
+#         data = {
+#             k: v.reshape((-1,) + v.shape[len(batch_dims) :]) for k, v in data.items()
+#         }
+#         inputs = torch.cat([data[k] for k in self.cnn_shapes], -1)
+#         inputs = torch.transpose(inputs, (0, 2, 3, 1, 4))
+#         inputs = torch.reshape(inputs, inputs.shape[:3] + (np.prod(inputs.shape[3:]),))
+#         output = self._cnn(inputs)
+#         print(output.shape)
+#         output = output.reshape((output.shape[0], -1))
+#         output = output.reshape(batch_dims + output.shape[1:])
+#         logits = self._logit_mlp(output)
+#         projection = self.disc_logit(logits)
+#         # projection = projection.reshape(projection.shape[:-1])
+#         return projection
 
 class MultiEncoder(nn.Module):
     def __init__(
@@ -453,8 +424,8 @@ class MultiEncoder(nn.Module):
         symlog_inputs,
     ):
         super(MultiEncoder, self).__init__()
-        # excluded = ("is_first", "is_last", "is_terminal", "reward")
-        excluded = ("is_first", "is_last", "is_terminal")
+        excluded = ("is_first", "is_last", "is_terminal", "reward")
+        # excluded = ("is_first", "is_last", "is_terminal")
         shapes = {
             k: v
             for k, v in shapes.items()
@@ -495,6 +466,7 @@ class MultiEncoder(nn.Module):
                 act,
                 norm,
                 symlog_inputs=symlog_inputs,
+                name="Encoder",
             )
             self.outdim += mlp_units
 
@@ -542,9 +514,10 @@ class MultiDecoder(nn.Module):
         cnn_sigmoid,
         image_dist,
         vector_dist,
+        outscale,
     ):
         super(MultiDecoder, self).__init__()
-        excluded = ("is_first", "is_last", "is_terminal", "reward")
+        excluded = ("is_first", "is_last", "is_terminal")
         # excluded = ("is_first", "is_last", "is_terminal")
         shapes = {k: v for k, v in shapes.items() if k not in excluded}
         self.cnn_shapes = {
@@ -569,6 +542,7 @@ class MultiDecoder(nn.Module):
                 norm,
                 kernel_size,
                 minres,
+                outscale=outscale,
                 cnn_sigmoid=cnn_sigmoid,
             )
             if torch.cuda.device_count() > 1:
@@ -583,6 +557,8 @@ class MultiDecoder(nn.Module):
                 act,
                 norm,
                 vector_dist,
+                outscale=outscale,
+                name="Decoder",
             )
         self._image_dist = image_dist
 
@@ -619,23 +595,20 @@ class ConvEncoder(nn.Module):
         input_shape,
         depth=32,
         act="SiLU",
-        norm="LayerNorm",
+        norm=True,
         kernel_size=4,
         minres=4,
     ):
         super(ConvEncoder, self).__init__()
         act = getattr(torch.nn, act)
-        norm = getattr(torch.nn, norm)
         h, w, input_ch = input_shape
+        stages = int(np.log2(h) - np.log2(minres))
+        in_dim = input_ch
+        out_dim = depth
         layers = []
-        for i in range(int(np.log2(h) - np.log2(minres))):
-            if i == 0:
-                in_dim = input_ch
-            else:
-                in_dim = 2 ** (i - 1) * depth
-            out_dim = 2**i * depth
+        for i in range(stages):
             layers.append(
-                Conv2dSame(
+                Conv2dSamePad(
                     in_channels=in_dim,
                     out_channels=out_dim,
                     kernel_size=kernel_size,
@@ -643,15 +616,19 @@ class ConvEncoder(nn.Module):
                     bias=False,
                 )
             )
-            layers.append(ChLayerNorm(out_dim))
+            if norm:
+                layers.append(ImgChLayerNorm(out_dim))
             layers.append(act())
+            in_dim = out_dim
+            out_dim *= 2
             h, w = h // 2, w // 2
 
-        self.outdim = out_dim * h * w
+        self.outdim = out_dim // 2 * h * w
         self.layers = nn.Sequential(*layers)
         self.layers.apply(tools.weight_init)
 
     def forward(self, obs):
+        obs -= 0.5
         # (batch, time, h, w, ch) -> (batch * time, h, w, ch)
         # print(obs.shape)
         x = obs.reshape((-1,) + tuple(obs.shape[-3:]))
@@ -674,7 +651,7 @@ class ConvDecoder(nn.Module):
         shape=(3, 64, 64),
         depth=32,
         act=nn.ELU,
-        norm=nn.LayerNorm,
+        norm=True,
         kernel_size=4,
         minres=4,
         outscale=1.0,
@@ -682,31 +659,29 @@ class ConvDecoder(nn.Module):
     ):
         super(ConvDecoder, self).__init__()
         act = getattr(torch.nn, act)
-        norm = getattr(torch.nn, norm)
         self._shape = shape
         self._cnn_sigmoid = cnn_sigmoid
         layer_num = int(np.log2(shape[1]) - np.log2(minres))
         self._minres = minres
-        self._embed_size = minres**2 * depth * 2 ** (layer_num - 1)
+        out_ch = minres**2 * depth * 2 ** (layer_num - 1)
+        self._embed_size = out_ch
         # 16 * 96 * 2**4 = 24576
-        self._linear_layer = nn.Linear(feat_size, self._embed_size)
-        self._linear_layer.apply(tools.weight_init)
-        in_dim = self._embed_size // (minres**2)
+        self._linear_layer = nn.Linear(feat_size, out_ch)
+        self._linear_layer.apply(tools.uniform_weight_init(outscale))
+        in_dim = out_ch // (minres**2)
+        out_dim = in_dim // 2
 
         layers = []
         h, w = minres, minres
         for i in range(layer_num):
-            out_dim = self._embed_size // (minres**2) // (2 ** (i + 1))
             bias = False
-            initializer = tools.weight_init
             if i == layer_num - 1:
                 out_dim = self._shape[0]
                 act = False
                 bias = True
                 norm = False
-                initializer = tools.uniform_weight_init(outscale)
 
-            if i != 0:
+            if i:
                 in_dim = 2 ** (layer_num - (i - 1) - 2) * depth
             pad_h, outpad_h = self.calc_same_pad(k=kernel_size, s=2, d=1)
             pad_w, outpad_w = self.calc_same_pad(k=kernel_size, s=2, d=1)
@@ -722,12 +697,15 @@ class ConvDecoder(nn.Module):
                 )
             )
             if norm:
-                layers.append(ChLayerNorm(out_dim))
+                layers.append(ImgChLayerNorm(out_dim))
             if act:
                 layers.append(act())
-            [m.apply(initializer) for m in layers[-3:]]
+            in_dim = out_dim
+            out_dim //= 2
             h, w = h * 2, w * 2
 
+        [m.apply(tools.weight_init) for m in layers[:-1]]
+        layers[-1].apply(tools.uniform_weight_init(outscale))
         self.layers = nn.Sequential(*layers)
 
     def calc_same_pad(self, k, s, d):
@@ -750,17 +728,19 @@ class ConvDecoder(nn.Module):
         x = x.permute(0, 3, 1, 2) # [1600, 1536, 4, 4]
         x = self.layers(x)
         # print(features.shape[:-1] + self._shape) # [16, 100, 3, 160, 160]
-        # (batch, time, -1) -> (batch * time, ch, h, w) necessary???
+        # (batch, time, -1) -> (batch * time, ch, h, w)
         mean = x.reshape(features.shape[:-1] + self._shape)
         # print(x.shape)
         # (batch * time, ch, h, w) -> (batch * time, h, w, ch)
         # mean = mean.permute(0, 1, 3, 4, 2)
-        k = len(mean.shape)-3
+        k = len(mean.shape) - 3
         permuted_dims = list(range(k)) + [k+1, k+2, k]
         mean = mean.permute(*permuted_dims)
         # mean = mean.permute(0, 2, 3, 1)
         if self._cnn_sigmoid:
-            mean = F.sigmoid(mean) - 0.5
+            mean = F.sigmoid(mean)
+        else:
+            mean += 0.5
         return mean
 
 
@@ -772,13 +752,19 @@ class MLP(nn.Module):
         layers=5,
         units=1024,
         act="SiLU",
-        norm="LayerNorm",
+        norm=True,
         dist="normal",
+        loss_scale=1.0,
         std=1.0,
+        min_std=0.1,
+        max_std=1.0,
+        absmax=None,
+        temp=0.1,
+        unimix_ratio=0.01,
         outscale=1.0,
         symlog_inputs=False,
+        name="NoName",
         device="cuda",
-        name = None,
     ):
         super(MLP, self).__init__()
         self._shape = (shape,) if isinstance(shape, int) else shape
@@ -789,22 +775,27 @@ class MLP(nn.Module):
             if len(self._shape) == 0:
                 self._shape = (1,)
 
-        self._layers = layers
         act = getattr(torch.nn, act)
-        norm = getattr(torch.nn, norm)
         self._dist = dist
-        self._std = std
+        self._std = std if isinstance(std, str) else torch.tensor((std,), device=device)
+        self._min_std = min_std
+        self._max_std = max_std
+        self._absmax = absmax
+        self._temp = temp
+        self._unimix_ratio = unimix_ratio
         self._symlog_inputs = symlog_inputs
         self._device = device
 
-        layers = []
-        for index in range(self._layers):
-            layers.append(nn.Linear(inp_dim, units, bias=False))
-            layers.append(norm(units, eps=1e-03))
-            layers.append(act())
-            if index == 0:
+        self.layers = nn.Sequential()
+        for i in range(layers):
+            self.layers.add_module(f"{name}_linear{i}", nn.Linear(inp_dim, units, bias=False))
+            if norm:
+                self.layers.add_module(
+                    f"{name}_norm{i}", nn.LayerNorm(units, eps=1e-03)
+                )
+            self.layers.add_module(f"{name}_act{i}", act())
+            if i == 0:
                 inp_dim = units
-        self.layers = nn.Sequential(*layers)
         self.layers.apply(tools.weight_init)
         
         if isinstance(self._shape, dict):
@@ -821,8 +812,28 @@ class MLP(nn.Module):
             self.mean_layer = nn.Linear(inp_dim, np.prod(self._shape))
             self.mean_layer.apply(tools.uniform_weight_init(outscale))
             if self._std == "learned":
+                assert dist in ("tanh_normal", "normal", "trunc_normal", "huber"), dist
                 self.std_layer = nn.Linear(units, np.prod(self._shape))
                 self.std_layer.apply(tools.uniform_weight_init(outscale))
+            # if self._dist == "multionehot":
+            #     self._dist_layer = []
+            #     for dim in self._size:
+            #         post_layers = []
+            #         for index in range(out_layers):
+            #             post_layers.append(nn.Linear(inp_dim, self._units, bias=False))
+            #             post_layers.append(norm(self._units, eps=1e-03))
+            #             post_layers.append(act())
+            #         head = nn.Sequential(*post_layers)
+            #         head.apply(tools.weight_init)
+
+            #         dl = nn.Linear(self._units, dim)
+            #         dl.apply(tools.uniform_weight_init(outscale))
+                    
+            #         head.add_module('dist', dl)
+                    
+            #         self._dist_layer.append(head)
+
+            #     self._dist_layer = nn.ModuleList(self._dist_layer)
 
     def forward(self, features, dtype=None):
         x = features
@@ -848,123 +859,13 @@ class MLP(nn.Module):
             else:
                 std = self._std
             return self.dist(self._dist, mean, std, self._shape)
+        
 
     def dist(self, dist, mean, std, shape):
-        if dist == "normal":
-            return tools.ContDist(
-                torchd.independent.Independent(
-                    torchd.normal.Normal(mean, std), len(shape)
-                )
-            )
-        if dist == "huber":
-            return tools.ContDist(
-                torchd.independent.Independent(
-                    tools.UnnormalizedHuber(mean, std, 1.0), len(shape)
-                )
-            )
-        if dist == "binary":
-            return tools.Bernoulli(
-                torchd.independent.Independent(
-                    torchd.bernoulli.Bernoulli(logits=mean), len(shape)
-                )
-            )
-        if dist == "symlog_disc":
-            return tools.DiscDist(logits=mean, device=self._device)
-        if dist == "symlog_mse":
-            return tools.SymlogDist(mean)
-        raise NotImplementedError(dist)
-
-
-class ActionHead(nn.Module):
-    def __init__(
-        self,
-        inp_dim,
-        size,
-        layers,
-        units,
-        act=nn.ELU,
-        norm=nn.LayerNorm,
-        dist="trunc_normal",
-        init_std=0.0,
-        min_std=0.1,
-        max_std=1.0,
-        temp=0.1,
-        outscale=1.0,
-        unimix_ratio=0.01,
-        out_layers=1,
-        action_space=None,
-        # video_len=5
-    ):
-        super(ActionHead, self).__init__()
-        self._size = size
-        self._layers = layers
-        self._units = units
-        self._dist = dist
-        act = getattr(torch.nn, act)
-        norm = getattr(torch.nn, norm)
-        self._min_std = min_std
-        self._max_std = max_std
-        self._init_std = init_std
-        self._unimix_ratio = unimix_ratio
-        self._temp = temp() if callable(temp) else temp
-        # self.video_len = video_len
-
-        pre_layers = []
-        for index in range(self._layers):
-            pre_layers.append(nn.Linear(inp_dim, self._units, bias=False))
-            pre_layers.append(norm(self._units, eps=1e-03))
-            pre_layers.append(act())
-            if index == 0:
-                inp_dim = self._units
-        self._pre_layers = nn.Sequential(*pre_layers)
-        self._pre_layers.apply(tools.weight_init)
-
-        if self._dist in ["tanh_normal", "tanh_normal_5", "normal", "trunc_normal"]:
-            self._dist_layer = nn.Linear(self._units, 2 * self._size) # * video_len)
-            self._dist_layer.apply(tools.uniform_weight_init(outscale))
-
-        elif self._dist in ["normal_1", "onehot", "onehot_gumbel"]:
-            self._dist_layer = nn.Linear(self._units, self._size) # * video_len)
-            self._dist_layer.apply(tools.uniform_weight_init(outscale))
-        elif self._dist == "multionehot":
-            self._dist_layer = []
-            for dim in self._size:
-                post_layers = []
-                for index in range(out_layers):
-                    post_layers.append(nn.Linear(inp_dim, self._units, bias=False))
-                    post_layers.append(norm(self._units, eps=1e-03))
-                    post_layers.append(act())
-                head = nn.Sequential(*post_layers)
-                head.apply(tools.weight_init)
-
-                dl = nn.Linear(self._units, dim)
-                dl.apply(tools.uniform_weight_init(outscale))
-                
-                head.add_module('dist', dl)
-                
-                self._dist_layer.append(head)
-
-            self._dist_layer = nn.ModuleList(self._dist_layer)
-
-    def forward(self, features, dtype=None):
-        x = features
-        x = self._pre_layers(x)
+        # print(self._dist)
         if self._dist == "tanh_normal":
-            x = self._dist_layer(x)
-            mean, std = torch.split(x, 2, -1)
             mean = torch.tanh(mean)
-            std = F.softplus(std + self._init_std) + self._min_std
-            dist = torchd.normal.Normal(mean, std)
-            dist = torchd.transformed_distribution.TransformedDistribution(
-                dist, tools.TanhBijector()
-            )
-            dist = torchd.independent.Independent(dist, 1)
-            dist = tools.SampleDist(dist)
-        elif self._dist == "tanh_normal_5":
-            x = self._dist_layer(x)
-            mean, std = torch.split(x, 2, -1)
-            mean = 5 * torch.tanh(mean / 5)
-            std = F.softplus(std + 5) + 5
+            std = F.softplus(std) + self._min_std
             dist = torchd.normal.Normal(mean, std)
             dist = torchd.transformed_distribution.TransformedDistribution(
                 dist, tools.TanhBijector()
@@ -972,53 +873,231 @@ class ActionHead(nn.Module):
             dist = torchd.independent.Independent(dist, 1)
             dist = tools.SampleDist(dist)
         elif self._dist == "normal":
-            x = self._dist_layer(x)
-            mean, std = torch.split(x, [self._size] * 2, -1)
             std = (self._max_std - self._min_std) * torch.sigmoid(
                 std + 2.0
             ) + self._min_std
             dist = torchd.normal.Normal(torch.tanh(mean), std)
-            dist = tools.ContDist(torchd.independent.Independent(dist, 1))
-        elif self._dist == "normal_1":
-            mean = self._dist_layer(x)
-            dist = torchd.normal.Normal(mean, 1)
-            dist = tools.ContDist(torchd.independent.Independent(dist, 1))
+            dist = tools.ContDist(
+                torchd.independent.Independent(dist, 1), absmax=self._absmax
+            )
+        elif self._dist == "normal_std_fixed":
+            dist = torchd.normal.Normal(mean, self._std)
+            dist = tools.ContDist(
+                torchd.independent.Independent(dist, 1), absmax=self._absmax
+            )
         elif self._dist == "trunc_normal":
-            x = self._dist_layer(x)
-            mean, std = torch.split(x, [self._size] * 2, -1)
             mean = torch.tanh(mean)
             std = 2 * torch.sigmoid(std / 2) + self._min_std
             dist = tools.SafeTruncatedNormal(mean, std, -1, 1)
-            dist = tools.ContDist(torchd.independent.Independent(dist, 1))
+            dist = tools.ContDist(
+                torchd.independent.Independent(dist, 1), absmax=self._absmax
+            )
         elif self._dist == "onehot":
-            x = self._dist_layer(x)
-            dist = tools.OneHotDist(x, unimix_ratio=self._unimix_ratio)
+            dist = tools.OneHotDist(mean, unimix_ratio=self._unimix_ratio)
         elif self._dist == "onehot_gumble":
-            x = self._dist_layer(x)
-            temp = self._temp
-            dist = tools.ContDist(torchd.gumbel.Gumbel(x, 1 / temp))
+            dist = tools.ContDist(
+                torchd.gumbel.Gumbel(mean, 1 / self._temp), absmax=self._absmax
+            )
         elif self._dist == "multionehot":
             xlist = []
             for dl in self._dist_layer:
                 xtemp = dl(x)
                 xlist.append(xtemp)
             dist = tools.MultiOneHotDist(xlist, unimix_ratio=self._unimix_ratio)
+        elif self._dist == "huber":
+            return tools.ContDist(
+                torchd.independent.Independent(
+                    tools.UnnormalizedHuber(mean, std, 1.0), len(shape)
+                )
+            )
+        elif self._dist == "binary":
+            return tools.Bernoulli(
+                torchd.independent.Independent(
+                    torchd.bernoulli.Bernoulli(logits=mean), len(shape)
+                )
+            )
+        elif self._dist == "symlog_disc":
+            return tools.DiscDist(logits=mean, device=self._device)
+        elif self._dist == "symlog_mse":
+            return tools.SymlogDist(mean)
         else:
-            raise NotImplementedError(self._dist)
+            raise NotImplementedError(dist)
         return dist
 
 
+# class ActionHead(nn.Module):
+#     def __init__(
+#         self,
+#         inp_dim,
+#         size,
+#         layers,
+#         units,
+#         act=nn.ELU,
+#         norm=nn.LayerNorm,
+#         dist="trunc_normal",
+#         init_std=0.0,
+#         min_std=0.1,
+#         max_std=1.0,
+#         temp=0.1,
+#         outscale=1.0,
+#         unimix_ratio=0.01,
+#         out_layers=1,
+#         action_space=None,
+#         # video_len=5
+#     ):
+#         super(ActionHead, self).__init__()
+#         self._size = size
+#         self._layers = layers
+#         self._units = units
+#         self._dist = dist
+#         act = getattr(torch.nn, act)
+#         norm = getattr(torch.nn, norm)
+#         self._min_std = min_std
+#         self._max_std = max_std
+#         self._init_std = init_std
+#         self._unimix_ratio = unimix_ratio
+#         self._temp = temp() if callable(temp) else temp
+#         # self.video_len = video_len
+
+#         pre_layers = []
+#         for index in range(self._layers):
+#             pre_layers.append(nn.Linear(inp_dim, self._units, bias=False))
+#             pre_layers.append(norm(self._units, eps=1e-03))
+#             pre_layers.append(act())
+#             if index == 0:
+#                 inp_dim = self._units
+#         self._pre_layers = nn.Sequential(*pre_layers)
+#         self._pre_layers.apply(tools.weight_init)
+
+#         if self._dist in ["tanh_normal", "tanh_normal_5", "normal", "trunc_normal"]:
+#             self._dist_layer = nn.Linear(self._units, 2 * self._size) # * video_len)
+#             self._dist_layer.apply(tools.uniform_weight_init(outscale))
+
+#         elif self._dist in ["normal_1", "onehot", "onehot_gumbel"]:
+#             self._dist_layer = nn.Linear(self._units, self._size) # * video_len)
+#             self._dist_layer.apply(tools.uniform_weight_init(outscale))
+#         elif self._dist == "multionehot":
+#             self._dist_layer = []
+#             for dim in self._size:
+#                 post_layers = []
+#                 for index in range(out_layers):
+#                     post_layers.append(nn.Linear(inp_dim, self._units, bias=False))
+#                     post_layers.append(norm(self._units, eps=1e-03))
+#                     post_layers.append(act())
+#                 head = nn.Sequential(*post_layers)
+#                 head.apply(tools.weight_init)
+
+#                 dl = nn.Linear(self._units, dim)
+#                 dl.apply(tools.uniform_weight_init(outscale))
+                
+#                 head.add_module('dist', dl)
+                
+#                 self._dist_layer.append(head)
+
+#             self._dist_layer = nn.ModuleList(self._dist_layer)
+
+#     def forward(self, features, dtype=None):
+#         x = features
+#         x = self._pre_layers(x)
+#         if self._dist == "tanh_normal":
+#             x = self._dist_layer(x)
+#             mean, std = torch.split(x, 2, -1)
+#             mean = torch.tanh(mean)
+#             std = F.softplus(std + self._init_std) + self._min_std
+#             dist = torchd.normal.Normal(mean, std)
+#             dist = torchd.transformed_distribution.TransformedDistribution(
+#                 dist, tools.TanhBijector()
+#             )
+#             dist = torchd.independent.Independent(dist, 1)
+#             dist = tools.SampleDist(dist)
+#         elif self._dist == "tanh_normal_5":
+#             x = self._dist_layer(x)
+#             mean, std = torch.split(x, 2, -1)
+#             mean = 5 * torch.tanh(mean / 5)
+#             std = F.softplus(std + 5) + 5
+#             dist = torchd.normal.Normal(mean, std)
+#             dist = torchd.transformed_distribution.TransformedDistribution(
+#                 dist, tools.TanhBijector()
+#             )
+#             dist = torchd.independent.Independent(dist, 1)
+#             dist = tools.SampleDist(dist)
+#         elif self._dist == "normal":
+#             x = self._dist_layer(x)
+#             mean, std = torch.split(x, [self._size] * 2, -1)
+#             std = (self._max_std - self._min_std) * torch.sigmoid(
+#                 std + 2.0
+#             ) + self._min_std
+#             dist = torchd.normal.Normal(torch.tanh(mean), std)
+#             dist = tools.ContDist(
+#                 torchd.independent.Independent(dist, 1), absmax=self._absmax
+#             )
+#         elif self._dist == "normal_1":
+#             mean = self._dist_layer(x)
+#             dist = torchd.normal.Normal(mean, 1)
+#             dist = tools.ContDist(
+#                 torchd.independent.Independent(dist, 1), absmax=self._absmax
+#             )
+#         elif self._dist == "trunc_normal":
+#             x = self._dist_layer(x)
+#             mean, std = torch.split(x, [self._size] * 2, -1)
+#             mean = torch.tanh(mean)
+#             std = 2 * torch.sigmoid(std / 2) + self._min_std
+#             dist = tools.SafeTruncatedNormal(mean, std, -1, 1)
+#             dist = tools.ContDist(
+#                 torchd.independent.Independent(dist, 1), absmax=self._absmax
+#             )
+#         elif self._dist == "onehot":
+#             x = self._dist_layer(x)
+#             dist = tools.OneHotDist(x, unimix_ratio=self._unimix_ratio)
+#         elif self._dist == "onehot_gumble":
+#             x = self._dist_layer(x)
+#             temp = self._temp
+#             dist = tools.ContDist(
+#                 torchd.gumbel.Gumbel(mean, 1 / self._temp), absmax=self._absmax
+#             )
+#         elif self._dist == "multionehot":
+#             xlist = []
+#             for dl in self._dist_layer:
+#                 xtemp = dl(x)
+#                 xlist.append(xtemp)
+#             dist = tools.MultiOneHotDist(xlist, unimix_ratio=self._unimix_ratio)
+#         elif dist == "huber":
+#             dist = tools.ContDist(
+#                 torchd.independent.Independent(
+#                     tools.UnnormalizedHuber(mean, std, 1.0), len(shape)
+#                     tools.UnnormalizedHuber(mean, std, 1.0),
+#                     len(shape),
+#                     absmax=self._absmax,
+#                 )
+#             )
+#         elif dist == "binary":
+#             dist = tools.Bernoulli(
+#                 torchd.independent.Independent(
+#                     torchd.bernoulli.Bernoulli(logits=mean), len(shape)
+#                 )
+#             )
+#         elif dist == "symlog_disc":
+#             dist = tools.DiscDist(logits=mean, device=self._device)
+#         elif dist == "symlog_mse":
+#             dist = tools.SymlogDist(mean)
+#         else:
+#             raise NotImplementedError(dist)
+#         return dist
+
+
 class GRUCell(nn.Module):
-    def __init__(self, inp_size, size, norm=False, act=torch.tanh, update_bias=-1):
+    def __init__(self, inp_size, size, norm=True, act=torch.tanh, update_bias=-1):
         super(GRUCell, self).__init__()
         self._inp_size = inp_size
         self._size = size
         self._act = act
-        self._norm = norm
         self._update_bias = update_bias
-        self._layer = nn.Linear(inp_size + size, 3 * size, bias=False)
+        self.layers = nn.Sequential()
+        self.layers.add_module(
+            "GRU_linear", nn.Linear(inp_size + size, 3 * size, bias=False)
+        )
         if norm:
-            self._norm = nn.LayerNorm(3 * size, eps=1e-03)
+            self.layers.add_module("GRU_norm", nn.LayerNorm(3 * size, eps=1e-03))
 
     @property
     def state_size(self):
@@ -1026,9 +1105,7 @@ class GRUCell(nn.Module):
 
     def forward(self, inputs, state):
         state = state[0]  # Keras wraps the state in a list.
-        parts = self._layer(torch.cat([inputs, state], -1))
-        if self._norm:
-            parts = self._norm(parts)
+        parts = self.layers(torch.cat([inputs, state], -1))
         reset, cand, update = torch.split(parts, [self._size] * 3, -1)
         reset = torch.sigmoid(reset)
         cand = self._act(reset * cand)
@@ -1037,7 +1114,7 @@ class GRUCell(nn.Module):
         return output, [output]
 
 
-class Conv2dSame(torch.nn.Conv2d):
+class Conv2dSamePad(torch.nn.Conv2d):
     def calc_same_pad(self, i, k, s, d):
         return max((math.ceil(i/s) - 1) * s + (k-1) * d + 1 - i, 0)
 
@@ -1067,9 +1144,9 @@ class Conv2dSame(torch.nn.Conv2d):
         return ret
 
 
-class ChLayerNorm(nn.Module):
+class ImgChLayerNorm(nn.Module):
     def __init__(self, ch, eps=1e-03):
-        super(ChLayerNorm, self).__init__()
+        super(ImgChLayerNorm, self).__init__()
         self.norm = torch.nn.LayerNorm(ch, eps=eps)
 
     def forward(self, x):

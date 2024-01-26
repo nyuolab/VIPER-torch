@@ -58,6 +58,7 @@ class VideoGPTRewardModel:
             encoding_minibatch_size: Minibatch size for VQGAN.
         """
         self.domain, self.task = task.split('_', 1)
+        # self.task = task
         self.vqgan_path = vqgan_path
         self.videogpt_path = videogpt_path
         self.camera_key = camera_key
@@ -71,12 +72,12 @@ class VideoGPTRewardModel:
         self.device = reward_model_device
         print(f'Reward model devices: {self.device}')
         self.ae = AE(path=vqgan_path, ae_config=ae_config)
-        self.ae.ae = self.ae.ae.to(self.device)
-        self.model, self.class_map = load_videogpt(videogpt_path, config=config, ae_config=ae_config, ae=self.ae, replicate=False)
+        # self.ae.ae = self.ae.ae.to(self.device)
+        self.gpt, self.class_map = load_videogpt(videogpt_path, config=config, ae_config=ae_config, ae=self.ae, replicate=False)
         # print(self.class_map)
-        config = self.model.config
-        self.sampler = sampler.VideoGPTSampler(self.model)
-        self.model = self.model.to(self.device)
+        config = self.gpt.config
+        self.sampler = sampler.VideoGPTSampler(self.gpt)
+        # self.gpt = self.gpt.to(self.device)
 
         self.model_name = config.model
         self.n_skip = getattr(config, 'frame_skip', 1)
@@ -169,8 +170,8 @@ class VideoGPTRewardModel:
             print(f'\tAfter applying frame skip: Embeddings shape: {embeddings.shape}, Encodings shape: {encodings.shape}')
         # print(label)
         # Assuming the log_prob method is implemented in your PyTorch model
-        likelihoods = self.model.log_prob(embeddings, encodings, label=label, reduce_sum=self.nll_reduce_sum)
-
+        likelihoods = self.gpt.log_prob(embeddings, encodings, label=label, reduce_sum=self.nll_reduce_sum)
+        
         if self.compute_joint:
             ll = likelihoods.sum(dim=-1)
         else:
@@ -187,7 +188,7 @@ class VideoGPTRewardModel:
             print(f'\tAfter applying frame skip: Embeddings shape: {first_embeddings.shape}, Encodings shape: {first_encodings.shape}')
         else:
             first_encodings, first_embeddings = encodings[:1], embeddings[:1]
-        likelihoods = self.model.log_prob(first_embeddings, first_encodings, label=label, reduce_sum=self.nll_reduce_sum)
+        likelihoods = self.gpt.log_prob(first_embeddings, first_encodings, label=label, reduce_sum=self.nll_reduce_sum)
         
         
         if self.n_skip > 1:
@@ -243,7 +244,7 @@ class VideoGPTRewardModel:
         # print(image_batch.shape)
         image_batch = self.process_images(image_batch)
         encodings = self.ae.encode(torch.unsqueeze(image_batch, 0))
-        embeddings = self.ae.lookup(encodings)
+        embeddings = self.ae.lookup(encodings, permute=False)
         encodings, embeddings = encodings[0], embeddings[0]
 
         # Compute batch of encodings and embeddings for likelihood computation.
@@ -290,7 +291,7 @@ class VideoGPTRewardModel:
 
     def expand_scalar(self, scalar, size, dtype):
         if scalar is None: return None
-        return torch.full((size,), scalar, dtype=dtype)
+        return torch.full((size,), scalar, dtype=dtype).to(self.device)
     
     def is_step_processed(self, step):
         return VideoGPTRewardModel.PRIVATE_LIKELIHOOD_KEY in step.keys()

@@ -5,7 +5,7 @@ defaults:
   evaldir: null
   offline_traindir: ''
   offline_evaldir: ''
-  seed: 1
+  seed: 2
   deterministic_run: False
   steps: 1e8
   parallel: False
@@ -18,7 +18,6 @@ defaults:
   compile: True
   precision: 32
   debug: False
-  expl_gifs: False
   video_pred_log: True
   curiosity: 'na'
   video_len: 5
@@ -35,42 +34,41 @@ defaults:
   time_limit: 1000
   grayscale: False
   prefill: 2500 # 10000
-  eval_noise: 0.0
   reward_EMA: True
   ae_ckpt: "viper_rl_data/checkpoints/dmc_vqgan"
 
   # Model
-  dyn_cell: 'gru_layer_norm'
   dyn_hidden: 512
   dyn_deter: 512
   dyn_stoch: 32
   dyn_discrete: 32
-  dyn_input_layers: 1
-  dyn_output_layers: 1
   dyn_rec_depth: 1
-  dyn_shared: False
   dyn_mean_act: 'none'
   dyn_std_act: 'sigmoid2'
   dyn_min_std: 0.1
   dyn_temp_post: True
   grad_heads: ['decoder', 'reward', 'cont']
   units: 512
-  reward_layers: 2
-  cont_layers: 2
-  value_layers: 2
-  actor_layers: 2
   act: 'SiLU'
-  norm: 'LayerNorm'
+  norm: True
   encoder:
-    {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: 'LayerNorm', cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 2, mlp_units: 512, symlog_inputs: True}
+    {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 2, mlp_units: 512, symlog_inputs: True}
   decoder:
-    {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: 'LayerNorm', cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 2, mlp_units: 512, cnn_sigmoid: False, image_dist: mse, vector_dist: symlog_mse}
-  density_head: {layers: 5, units: 1024, act: 'SiLU', norm: 'LayerNorm', dist: 'symlog_disc', outscale: 0.0} # , winit: normal, fan: avg, bins: 255}
-  value_head: 'symlog_disc'
-  reward_head: 'symlog_disc'
-  dyn_scale: '0.5'
-  rep_scale: '0.1'
-  kl_free: '1.0'
+    {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 2, mlp_units: 512, cnn_sigmoid: False, image_dist: mse, vector_dist: symlog_mse, outscale: 1.0}
+  actor:
+    {layers: 2, units: 512, dist: 'normal', entropy: 3e-4, unimix_ratio: 0.01, std: 'learned', min_std: 0.1, max_std: 1.0, temp: 0.1, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 1.0, absmax: 1.0, name: "Actor"}
+  critic:
+    {layers: 2, units: 512, dist: 'symlog_disc', slow_target: True, slow_target_update: 1, slow_target_fraction: 0.02, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 0.0}
+  reward_head:
+    {layers: 2, units: 512, act: "SiLU", norm: True, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0., name: "Reward"}
+  cont_head:
+    {layers: 2, units: 512, act: "SiLU", norm: True, dist: "binary", loss_scale: 1.0, outscale: 1.0, name: "Cont"}
+  density_head: 
+    {layers: 5, units: 1024, act: "SiLU", norm: True, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0.0, name: "Density"}
+
+  dyn_scale: 0.5
+  rep_scale: 0.1
+  kl_free: 1.0
   cont_scale: 1.0
   reward_scale: 1.0
   density_scale: 1.0
@@ -104,7 +102,6 @@ defaults:
   imag_horizon: 15
   imag_gradient: 'dynamics'
   imag_gradient_mix: 0.0
-  imag_sample: True
   actor_dist: 'normal'
   actor_entropy: 3e-4
   actor_state_entropy: 0.0
@@ -116,10 +113,7 @@ defaults:
   expl_decay_rate: 0.9997
   expl_min: 0.0
   eval_state_mean: False
-  collect_dyn_sample: True
-  behavior_stop_grad: True
   value_decay: 0.0
-  future_entropy: False
   class_cond: True
   seq_len: 16
   frame_skip: 1
@@ -141,7 +135,7 @@ defaults:
 
   # Prior
   prior_rewards: {extr: 1.0, density: 1.0, disag: 0.0}
-  reward_model: 'dmc_clen16_fskip1'
+  reward_model: 'none' # 'dmc_clen16_fskip1'
   reward_model_batch_size: 64
   reward_model_compute_joint: True
 
@@ -153,12 +147,12 @@ defaults:
   amp_window: 5
 
 videogpt_prior_rb:
-  task_behavior: prior
-  expl_behavior: plan2explore
-  grad_heads: ['decoder', 'density', 'cont']
-  prior_rewards: {extr: 0.0, density: 1.0, disag: 1.0}
-  wrapper.density: True
-  replay: uniform_relabel
+  # task_behavior: prior
+  # expl_behavior: plan2explore
+  # grad_heads: ['decoder', 'density', 'cont']
+  # prior_rewards: {extr: 0.0, density: 1.0, disag: 1.0}
+  # wrapper.density: True
+  # replay: uniform_relabel
 
   run:
     log_keys_max: '^log_.*'

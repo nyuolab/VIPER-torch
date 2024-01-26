@@ -48,9 +48,7 @@ class Dreamer(nn.Module):
         # self.n_skip = config.transformer["frame_skip"]
         # self.seq_len = config.transformer["seq_len"] * self.n_skip
         self._wm = models.WorldModel(obs_space, act_space, self._step, config)
-        self._task_behavior = models.ImagBehavior(
-            config, self._wm, config.behavior_stop_grad
-        )
+        self._task_behavior = models.ImagBehavior(config, self._wm)
         if (
             config.compile and os.name != "nt"
         ):  # compilation is not supported on windows
@@ -150,9 +148,7 @@ class Dreamer(nn.Module):
         obs = self._wm.preprocess(obs)
         embed = self._wm.encoder(obs)
         
-        latent, _ = self._wm.dynamics.obs_step(
-            latent, action, embed, obs["is_first"], self._config.collect_dyn_sample
-        ) # action.flatten(start_dim=-2)
+        latent, _ = self._wm.dynamics.obs_step(latent, action, embed, obs["is_first"])
         if self._config.eval_state_mean:
             latent["stoch"] = latent["mean"]
         feat = self._wm.dynamics.get_feat(latent)
@@ -179,7 +175,7 @@ class Dreamer(nn.Module):
         #     action = torch.one_hot(
         #         torch.argmax(action, dim=-1), self._config.num_actions
         #     )
-        action = self._exploration(action, training)
+        # action = self._exploration(action, training)
         # if isinstance(action, list):
         #     action = torch.cat(action, dim=-1)
         # from tensor to dictionary
@@ -190,7 +186,7 @@ class Dreamer(nn.Module):
         else:
             state = (latent, action)
         return policy_output, state
-
+    
     def _exploration(self, action, training):
         amount = self._config.expl_amount if training else self._config.eval_noise
         # print(amount)
@@ -215,9 +211,14 @@ class Dreamer(nn.Module):
         start = post
         # why the virtual reward function doesn't use action as input?
         if self._config.task_behavior == "prior":
-            reward = lambda f, s, a: self._wm.heads["density"](f).mean()
+            reward = lambda f, s, a: self._wm.heads["density"](
+                self._wm.dynamics.get_feat(s)
+            ).mode()
         else:    
-            reward = lambda f, s, a: self._wm.heads["reward"](f).mean()
+            reward = lambda f, s, a: self._wm.heads["reward"](
+                self._wm.dynamics.get_feat(s)
+            ).mode()
+            # reward = lambda f, s, a: self._wm.heads["reward"](f).mean()
         
         metrics.update(self._task_behavior._train(start, reward)[-1]) # imagbehavior
         if self._config.expl_behavior not in ["greedy", "prior"]:

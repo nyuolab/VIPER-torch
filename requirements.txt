@@ -42,6 +42,7 @@ flask
 urlobject
 tabulate
 tensorboardX
+wandb
 # minerl==0.4.4
 # This was needed for minerl
 # conda install -c conda-forge openjdk=8

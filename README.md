@@ -45,7 +45,7 @@ python scripts/train_videogpt.py -o viper_rl_data/checkpoints/dmc_videogpt_l16_s
 
 ## Policy training
 ```
-python scripts/train_dreamer.py --configs=dmc_vision videogpt_prior_rb --task=dmc_walker_walk --reward_model=dmc_clen16_fskip4 --logdir=~/logdir
+python scripts/train_dreamer.py --configs=dmc_vision videogpt_prior_rb --task=dmc_walker_walk --reward_model=dmc_clen16_fskip1 --logdir=./logdir
 ```
 
 Custom checkpoint directories can be specified with the `$VIPER_CHECKPOINT_DIR` environment variable. The default checkpoint path is set to `viper_rl_data/checkpoints/`.

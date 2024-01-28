@@ -110,7 +110,7 @@ def get_optimizer(model, config):
     return optimizer, scheduler
 
 
-def init_model_state_vqgan(model, batch, config):
+def init_model_state_vqgan(model, config):
     # In PyTorch, models are initialized when they are created
     # print_model_size(model.vqgan, name='vqgan')
     # print_model_size(model.disc, name='disc')

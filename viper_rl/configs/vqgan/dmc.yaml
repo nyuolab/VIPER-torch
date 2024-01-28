@@ -1,6 +1,6 @@
 seed: 1234
 
-batch_size: 16
+batch_size: 256
 lr: 1.e-4
 total_steps: 1000000
 warmup_steps: 1000
@@ -17,6 +17,7 @@ lr_schedule: "constant"
 disc_weight: 0.1
 codebook_weight: 1.0
 perceptual_weight: 0.1
+ddp: True
 
 model: "vqgan"
 ae:

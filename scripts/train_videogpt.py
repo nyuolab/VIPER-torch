@@ -53,7 +53,6 @@ def main(config):
     config.ae["ddp"] = config.ddp
     config.num_device = torch.cuda.device_count()
 
-    
     # Create a new generator (equivalent to a new stream of random numbers)
     new_generator = torch.Generator()
     new_generator.manual_seed(config.seed)  # Optionally, seed the new generator
@@ -71,8 +70,8 @@ def main(config):
 
     train_dataset, class_map, _ = load_dataset(config, train=True, modality='video')
     test_dataset, class_map_test, _ = load_dataset(config, train=False, modality='video')
-
-    rev_class_map = {val:key for key,val in class_map.items()}
+    
+    rev_class_map = {val:key for key, val in class_map.items()}
     config.rev_class_map = rev_class_map
 
     if config.class_cond:
@@ -100,10 +99,10 @@ def main(config):
             config.start_iter = checkpoint['iteration']
             print(f'Restored from checkpoint {os.path.join(config.ckpt)}, at iteration {config.start_iter}')
 
-    if config.ddp:
-        mp.spawn(train_videogpt, args=(config, gpt, train_dataset, test_dataset), nprocs=world_size, join=True)
-    else:
-        train_videogpt(0, config, gpt, train_dataset, test_dataset)
+    # if config.ddp:
+    #     mp.spawn(train_videogpt, args=(config, gpt, train_dataset, test_dataset), nprocs=world_size, join=True)
+    # else:
+    train_videogpt(0, config, gpt, train_dataset, test_dataset)
 
 
 def train_videogpt(rank, config, gpt, train_dataset, test_dataset):

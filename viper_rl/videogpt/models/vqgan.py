@@ -63,6 +63,7 @@ class VQGAN(nn.Module):
         return self.quantize(None, encodings, permute=permute)    
 
     def reconstruct(self, image):
+        # print(image.shape)
         vq_out = self.encode(image, deterministic=True)
         recon = self.decode(vq_out['encodings'], deterministic=True)
         return recon
@@ -86,7 +87,7 @@ class VQGAN(nn.Module):
  
     def forward(self, image, deterministic=True):
         vq_out = self.encode(image, deterministic=deterministic)
-        # print(vq_out['embeddings'].shape) [128, 64, 8, 8]
+        # print(vq_out['embeddings'].shape) # [128, 64, 8, 8]
         recon = self.decode(vq_out['embeddings'], is_embed=True,
                             deterministic=deterministic)
         return {
@@ -102,7 +103,8 @@ class VectorQuantizer(nn.Module):
         self.e_dim = e_dim
         self.beta = beta
         
-        self.embeddings = nn.Parameter(torch.rand(n_e, e_dim) * 2.0 / n_e - 1.0 / n_e)
+        self.embedding = nn.Embedding(self.n_e, self.e_dim)
+        self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
         # (256, 64)
 
     def forward(self, z, encoding_indices=None, permute=True):
@@ -110,7 +112,10 @@ class VectorQuantizer(nn.Module):
             # print(self.embeddings.shape)
             # print(encoding_indices.shape)
             # print(self.embeddings[encoding_indices].shape)
-            embeddings = self.embeddings[encoding_indices]
+            # print(encoding_indices.shape)
+            embeddings = self.get_codebook_entry(encoding_indices)
+            # print(embeddings.shape)
+            # embeddings = self.embeddings[encoding_indices]
             if permute:
                 # (..., H, W, C) -> (..., C, H, W)
                 axis_order = tuple(range(embeddings.ndim - 3)) + (embeddings.ndim - 1, embeddings.ndim - 3, embeddings.ndim - 2)
@@ -119,38 +124,84 @@ class VectorQuantizer(nn.Module):
                 return embeddings
         # print(z.shape)
         # torch.Size([128, 64, 8, 8])
-
-        z_flattened = z.permute(0, 2, 3, 1).contiguous()
-        z_e_size = z_flattened.shape
-        z_flattened = z_flattened.view(-1, z_flattened.shape[-1])
+        # print(z.shape)
+        z = z.permute(0, 2, 3, 1).contiguous()
+        z_e_size = z.shape
+        z_flattened = z.view(-1, z.shape[-1])
         # print(z_flattened.shape) # [8192, 64]
         # progress
         d = torch.sum(z_flattened ** 2, dim=1, keepdim=True) + \
-            torch.sum(self.embeddings.t() ** 2, dim=0, keepdim=True) - \
-            2 * torch.einsum('bd,nd->bn', z_flattened, self.embeddings)
+            torch.sum(self.embedding.weight**2, dim=1) - 2 * \
+            torch.matmul(z_flattened, self.embedding.weight.t())
+            # torch.sum(self.embeddings.t() ** 2, dim=0, keepdim=True) - \
+            # 2 * torch.einsum('bd,nd->bn', z_flattened, self.embeddings)
         
         # print(d.shape) # [8192, 256]
-        min_encoding_indices = torch.argmin(d, dim=1)
-        z_q = self.embeddings[min_encoding_indices]
-        z_q = z_q.view(z_e_size).permute(0, 3, 1, 2).contiguous()
+        # find closest encodings
+        min_encoding_indices = torch.argmin(d, dim=1) # .unsqueeze(1)
+
+        # min_encodings = torch.zeros(
+        #     min_encoding_indices.shape[0], self.n_e).to(z)=
+        # print(min_encodings.shape)
+        # print(min_encoding_indices.shape)
+        # min_encodings.scatter_(1, min_encoding_indices, 1)
+
+        min_encodings = F.one_hot(min_encoding_indices, num_classes=self.n_e).float()
+
+        z_q = torch.matmul(min_encodings, self.embedding.weight).view(z_e_size)
+
+        loss = self.beta * torch.mean((z_q.detach()-z)**2) + self.beta * \
+            torch.mean((z_q-z.detach()) ** 2)
         
-        loss = self.beta * torch.mean((z_q.detach() - z) ** 2) + \
-               torch.mean((z_q - z.detach()) ** 2)
+        # preserve gradients
         z_q = z + (z_q - z).detach()
 
-        encodings_one_hot = F.one_hot(min_encoding_indices, num_classes=self.n_e).float()
-        avg_probs = torch.mean(encodings_one_hot, dim=0)
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+        # perplexity
+        e_mean = torch.mean(min_encodings, dim=0)
+        perplexity = torch.exp(-torch.sum(e_mean * torch.log(e_mean + 1e-10)))
+
+        # reshape back to match original input shape
+        z_q = z_q.permute(0, 3, 1, 2).contiguous()
+
+        # min_encoding_indices = torch.argmin(d, dim=1)
+        # z_q = self.embeddings[min_encoding_indices]
+        # z_q = z_q.view(z_e_size).permute(0, 3, 1, 2).contiguous()
+        
+        # loss = self.beta * torch.mean((z_q.detach() - z) ** 2) + \
+        #        torch.mean((z_q - z.detach()) ** 2)
+        # z_q = z + (z_q - z).detach()
+
+        # encodings_one_hot = F.one_hot(min_encoding_indices, num_classes=self.n_e).float()
+        # avg_probs = torch.mean(encodings_one_hot, dim=0)
+        # perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
         
         min_encoding_indices = min_encoding_indices.view(*z_e_size[:-1])
         # print(f'Latents of shape {min_encoding_indices.shape}') # [batch_size, 8, 8]
 
         return {
             'embeddings': z_q,
+            # 'encodings': min_encodings,
             'encodings': min_encoding_indices,
             'vq_loss': loss,
             'perplexity': perplexity
         }
+
+    def get_codebook_entry(self, indices, shape=None):
+        # shape specifying (batch, height, width, channel)
+        # TODO: check for more easy handling with nn.Embedding
+        # min_encodings = torch.zeros(indices.shape[0], self.n_e).to(indices)
+        # min_encodings.scatter_(1, indices[:,None], 1)
+        min_encodings = F.one_hot(indices, num_classes=self.n_e).float()
+
+        # get quantized latent vectors
+        z_q = torch.matmul(min_encodings.float(), self.embedding.weight)
+
+        # if shape is not None:
+        #     z_q = z_q.view(shape)
+
+        #     # reshape back to match original input shape
+        #     z_q = z_q.permute(0, 3, 1, 2).contiguous()
+        return z_q
         
 
 class Encoder(nn.Module):

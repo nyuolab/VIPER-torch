@@ -18,9 +18,6 @@ from datetime import datetime
 import torch
 import torch.distributed as dist
 
-dist.init_process_group(backend='nccl')
-
-global is_master_process
 
 # import jax
 # import jax.numpy as jnp
@@ -32,19 +29,37 @@ directory = directory.parent
 sys.path.append(str(directory.parent))
 
 from viper_rl.videogpt.loss_vqgan import VQPerceptualWithDiscriminator
-from viper_rl.videogpt.data import load_dataset
+from viper_rl.videogpt.data import load_dataset, prepare
 from viper_rl.videogpt.train_utils import init_model_state_vqgan, ProgressMeter, save_image_grid, get_first_device, print_model_size
+from viper_rl.videogpt import weight_init
+
 
 def extract_iteration(filename):
     match = re.search(r"checkpoint_(\d+).pth", filename)
     return int(match.group(1)) if match else 0
 
 def main():
-    print("The world size is {}".format(dist.get_world_size()))
+    # print("The world size is {}".format(dist.get_world_size()))
     seed = config.seed
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+    world_size = torch.cuda.device_count()
+    rank = 0
+    
+    if config.ddp:
+        dist.init_process_group(backend='nccl')
+        # rank = dist.get_rank()
+        print(f"Start running basic DDP on rank {rank}.")
+        dist.init_process_group(backend='gloo', rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=5))
+        # create model and move it to GPU with id rank
+        device = rank % world_size
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    torch.cuda.manual_seed_all(config.seed)
+
     
     global model
     global ckpt_dir
@@ -57,33 +72,38 @@ def main():
 
     config.ckpt = config.output_dir if osp.exists(config.output_dir) else None
     # config.ckpt = None
-    config.device = device
-    config.ae['device'] = device
     ckpt_dir = osp.join(config.output_dir, 'checkpoints')
-
-    if is_master_process:
-        wandb.init(project='vqgan', config=config,
-                   id=config.run_id, resume='allow', mode='online')
-        wandb.run.name = config.run_id
-        wandb.run.save()
+    
+    wandb.init(project='vqgan', config=config,
+                id=config.run_id, resume='allow', mode='online')
+    wandb.run.name = config.run_id
+    wandb.run.save()
     
     model = VQPerceptualWithDiscriminator(config)
     print_model_size(model.vqgan, name='vqgan')
     print_model_size(model.disc, name='disc')
 
-    train_loader, _, mask_map = load_dataset(config, train=True, num_ds_shards=dist.get_world_size(), ds_shard_id=dist.get_rank(), modality='image')
-    test_loader, _, _ = load_dataset(config, train=False, num_ds_shards=dist.get_world_size(), ds_shard_id=dist.get_rank(), modality='image')
+
+    config.device = device
+    config.ae['device'] = device
+
+    train_dataset, _, mask_map = load_dataset(config, train=True, modality='image')
+    test_dataset, _, _ = load_dataset(config, train=False, modality='image')
+
+    train_loader = prepare(train_dataset, config.batch_size, world_size, rank, ddp=config.ddp)
+    test_loader = prepare(test_dataset, config.batch_size, world_size, rank, ddp=config.ddp)
 
     if mask_map is not None:
         pickle.dump(mask_map, open(osp.join(config.output_dir, 'mask_map.pkl'), 'wb'))
     
     
-    batch = next(iter(train_loader))
-    print(batch.keys())
-    batch = get_first_device(batch)
+    # batch = next(iter(train_loader))
+    # print(batch.keys())
+    # batch = get_first_device(batch)
 
-
-    state = init_model_state_vqgan(model, batch, config)
+    state = init_model_state_vqgan(model, config)
+    state.model.vqgan.apply(weight_init)
+    state.model.disc.apply(weight_init)
     state.model.use_device(device)
     
     start_iteration = 0
@@ -171,17 +191,16 @@ def train(iteration, state, train_loader, test_loader, config):
         metrics = {k: v.astype(np.float32) for k, v in metrics.items()}
         progress.update(n=batch_size, **{k: v for k, v in metrics.items()})
 
-        if is_master_process:
-            wandb.log({'train/lr': state.G_scheduler.get_last_lr()[0]}, step=iteration)
-            wandb.log({**{f'train/{metric}': val
-                        for metric, val in metrics.items()}
-                    }, step=iteration)
+        wandb.log({'train/lr': state.G_scheduler.get_last_lr()[0]}, step=iteration)
+        wandb.log({**{f'train/{metric}': val
+                    for metric, val in metrics.items()}
+                }, step=iteration)
 
         progress.update(time=time.time() - end)
         end = time.time()
 
         # Checkpoint saving
-        if iteration % config.save_interval == 0 and is_master_process:
+        if iteration % config.save_interval == 0:
             save_path = os.path.join(ckpt_dir, f'checkpoint_{iteration}.pth')
             torch.save({
                 'iteration': iteration,
@@ -235,15 +254,14 @@ def visualize(iteration, state, test_loader, device):
     viz = np.stack((recon_np, images_np), axis=1)
     
     viz = viz.reshape(-1, *viz.shape[2:]) * 0.5 + 0.5  # Adjusting range if necessary
-    viz = np.transpose(viz, (0, 2, 3, 1))
+    viz = np.transpose(viz, (0, 2, 3, 1)) # .astype(np.int32)
 
     # Save image grid and log to WandB
     viz_image = save_image_grid(viz)  # Define save_image_grid as needed
     viz_wandb = wandb.Image(viz_image)
 
     # Log visualization in WandB
-    if is_master_process:  # Ensure is_master_process is defined in your context
-        wandb.log({'eval/recon': viz_wandb}, step=iteration)
+    wandb.log({'eval/recon': viz_wandb}, step=iteration)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -277,6 +295,6 @@ if __name__ == '__main__':
     pickle.dump(args, open(osp.join(args.output_dir, 'args'), 'wb'))
     config = args
 
-    is_master_process = dist.get_rank() == 0
+    # is_master_process = dist.get_rank() == 0
 
     main()

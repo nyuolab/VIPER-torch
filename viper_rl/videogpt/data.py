@@ -175,13 +175,13 @@ def _reshape_sample(sample, initial_shape):
 
 class ImageDataset(Dataset):
     def __init__(self, imgs):
-        self.imgs = img
+        self.imgs = imgs
 
     def __len__(self):
          return len(self.imgs)   
 
     def __getitem__(self, idx):
-        return {'image': torch.tensor(self.imgs[idx], dtype=torch.float32)}
+        return {'image': torch.tensor(self.imgs[idx], dtype=torch.float32) / 127.5 - 1}
 
 class NPZVideoDataset(Dataset):
     def __init__(self, videos, config, label=None):
@@ -226,13 +226,15 @@ def load_npz(config, data_path, train, mask, label, modality):
                 video = video[:, ::config.frame_skip]
             else:
                 video = video[None]
-
-            if mask is not None:
-                video *= mask
+            # if mask is not None:
+            #     video *= mask
             videos.append(video)
             # video_cum_len += video.shape[0]
             # video_len_scan.append(video_cum_len)
         videos = np.concatenate(videos, axis=0)
+
+        if mask is not None:
+            videos *= mask
 
         dataset = NPZVideoDataset(videos, config, label)
         
@@ -242,6 +244,10 @@ def load_npz(config, data_path, train, mask, label, modality):
             video = np.load(video_path)['arr_0']
             imgs.append(video)
         imgs = np.concatenate(imgs, axis=0)
+        
+        if mask is not None:
+            imgs *= mask
+
         new_axes = tuple(range(imgs.ndim - 3)) + (imgs.ndim - 1, imgs.ndim - 3, imgs.ndim - 2)
         imgs = np.transpose(imgs, new_axes)
         dataset = ImageDataset(imgs)

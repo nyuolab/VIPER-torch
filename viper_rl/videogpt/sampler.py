@@ -43,13 +43,13 @@ class VideoGPTSampler:
         latent_shape = samples.shape[-3:]
         ctx = open_loop_ctx or self.config.open_loop_ctx
         samples[:, :ctx] = encodings[:, :ctx]
-        samples = samples.reshape(*samples.shape[:-3], -1)
-
-        # print("samples shape is {}".format(samples.shape))
+        samples = samples.reshape(*samples.shape[:-3], -1) 
+        # print("samples shape is {}".format(samples.shape)) [batch_size * seq_len * height * width]
+        # (batch_size, 16, 8, 8)
 
         # Define sampling range
-        n_cond = np.prod(latent_shape[1:]) * ctx
-        n_tokens = np.prod(latent_shape)
+        n_cond = np.prod(latent_shape[1:]) * ctx # 64
+        n_tokens = np.prod(latent_shape) # 1024
         itr = range(n_cond, n_tokens)
         if log_tqdm:
             itr = tqdm(itr)

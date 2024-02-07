@@ -60,8 +60,9 @@ def load_dataset(config, train, modality='video'):
     # print(data_type)
     if data_type in ['mp4', 'npz']:
         dataset = get_dataset(
-            config.data_path, None, data_type, batch_size, initial_shape=initial_shape
+            config.data_path, None, data_type, initial_shape, None
         )
+
         class_map, mask_map = None, None
 
         # data_loader = prepare(
@@ -123,9 +124,9 @@ def load_dataset(config, train, modality='video'):
     return dataset, class_map, mask_map
 
 
-def prepare(dataset, batch_size, world_size, rank, ddp=True, initial_shape=None):
+def prepare(dataset, batch_size, world_size, rank, ddp=False, initial_shape=None):
     # Check if in DEBUG mode
-    shuffle_size = batch_size if os.environ.get('DEBUG') == '1' else batch_size * 64
+    # shuffle_size = batch_size if os.environ.get('DEBUG') == '1' else batch_size * 64
 
     # Create a data loader
     if ddp:
@@ -142,6 +143,19 @@ def prepare(dataset, batch_size, world_size, rank, ddp=True, initial_shape=None)
             # collate_fn=lambda x: custom_collate_fn(x, initial_shape)
             collate_fn=torch.utils.data.dataloader.default_collate,
         )
+    # elif dp:
+    #     data_loader = DataLoader(
+    #         dataset, 
+    #         batch_size=batch_size*world_size, 
+    #         shuffle=True, # Shuffling the dataset
+    #         drop_last=True, # Dropping the last incomplete batch
+    #         num_workers=os.cpu_count(), # os.cpu_count(), # Utilizing multiple CPU cores
+    #         prefetch_factor=None, # Prefetching batches
+    #         pin_memory=True,
+    #         # collate_fn=lambda x: custom_collate_fn(x, initial_shape)
+    #         collate_fn=torch.utils.data.dataloader.default_collate,
+    #     )
+
     else:
         data_loader = DataLoader(
             dataset, 

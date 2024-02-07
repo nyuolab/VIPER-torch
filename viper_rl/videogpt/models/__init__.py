@@ -5,7 +5,8 @@ import re
 import pickle
 import numpy as np
 import torch
-from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.nn as nn
+# from torch.nn.parallel import DistributedDataParallel as DDP
 
 from .vqgan import VQGAN
 from .videogpt import VideoGPT
@@ -15,6 +16,7 @@ from .vqgan import VQGAN
 def extract_iteration(filename):
     match = re.search(r"checkpoint_(\d+).pth", filename)
     return int(match.group(1)) if match else 0
+
 
 def load_videogpt(path, config, ae_config, ae=None, replicate=True):
     # Load configuration
@@ -95,21 +97,30 @@ class AE:
         #     self.ae = self.ae.module
 
     def latent_shape(self, image_size):
-        return self.ae.latent_shape(image_size) # (8, 8)
+        if isinstance(self.ae, nn.DataParallel):
+            return self.ae.module.latent_shape(image_size) # (8, 8)
+        else:
+            return self.ae.latent_shape(image_size) # (8, 8)
 
     @property
     def channels(self):
-        return self.ae.codebook_embed_dim
+        if isinstance(self.ae, nn.DataParallel):
+            return self.ae.module.codebook_embed_dim
+        else:
+            return self.ae.codebook_embed_dim
     
     @property
     def n_embed(self): 
-        return self.ae.n_embed
+        if isinstance(self.ae, nn.DataParallel):
+            return self.ae.module.n_embed
+        else:
+            return self.ae.n_embed
 
     def encode(self, video):
         # Assuming the AE model has 'encode' method
         T = video.shape[1]
         video = video.reshape(-1, *video.shape[2:])
-        out = self.ae.encode(video)
+        out = self.ae(video)
         encodings = out['encodings']
         return encodings.reshape(-1, T, *encodings.shape[1:])
     
@@ -117,18 +128,23 @@ class AE:
         # Assuming the AE model has 'decode' method
         T = encodings.shape[1]
         encodings = encodings.reshape(-1, *encodings.shape[2:])
-        recon = self.ae.decode(encodings)
+        recon = self.ae(encodings, encode=False, is_embed=False)
+        
         recon = torch.clip(recon, -1, 1)
         return recon.reshape(-1, T, *recon.shape[1:])
     
     def lookup(self, encodings, permute=True):
         # Assuming the AE model has 'codebook_lookup' method
-        return self.ae.codebook_lookup(encodings, permute=permute)
+        # if isinstance(self.ae, nn.DataParallel):
+        #     return self.ae.module.codebook_lookup(encodings, permute=permute)
+        # else:
+        #     return self.ae.codebook_lookup(encodings, permute=permute)
+        return self.ae(encodings, lookup=True, permute=permute)
 
     def prepare_batch(self, batch):
         # Prepare the batch for training, similar logic as in JAX
         if 'encodings' in batch:
-            encodings = batch.pop('encodings').to(self.device) 
+            encodings = batch.pop('encodings').to(self.device)
         else:
             video = batch.pop('video').to(self.device) 
             # (..., H, W, C) -> (..., C, H, W)

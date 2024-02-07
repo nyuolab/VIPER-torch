@@ -1,0 +1,89 @@
+/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/runpy.py:126: RuntimeWarning: 'minerl.utils.process_watcher' found in sys.modules after import of package 'minerl.utils', but prior to execution of 'minerl.utils.process_watcher'; this may result in unpredictable behaviour
+  warn(RuntimeWarning(msg))
+Traceback (most recent call last):
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/minerl_test.py", line 9, in <module>
+    obs = env.reset()
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/gym/wrappers/time_limit.py", line 27, in reset
+    return self.env.reset(**kwargs)
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/minerl/herobraine/env_specs/basalt_specs.py", line 78, in reset
+    return self.env.reset()
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/minerl/herobraine/env_specs/basalt_specs.py", line 57, in reset
+    return super().reset()
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/gym/core.py", line 292, in reset
+    return self.env.reset(**kwargs)
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/minerl/env/_singleagent.py", line 22, in reset
+    multi_obs = super().reset()
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/minerl/env/_multiagent.py", line 436, in reset
+    self._setup_instances()
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/minerl/env/_multiagent.py", line 539, in _setup_instances
+    self.instances.extend([f.result() for f in instance_futures])
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/minerl/env/_multiagent.py", line 539, in <listcomp>
+    self.instances.extend([f.result() for f in instance_futures])
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/concurrent/futures/_base.py", line 451, in result
+    return self.__get_result()
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/concurrent/futures/_base.py", line 403, in __get_result
+    raise self._exception
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/minerl/env/_multiagent.py", line 805, in _get_new_instance
+    instance.launch(replaceable=self._is_fault_tolerant)
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/minerl/env/malmo.py", line 427, in launch
+    raise EOFError(
+EOFError: /gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/minerl/env/../MCP-Reborn
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+[23:04:09] [Render thread/INFO]: Environment: authHost='https://authserver.mojang.com', accountsHost='https://api.mojang.com', sessionHost='https://sessionserver.mojang.com', servicesHost='https://api.minecraftservices.com', name='PROD'
+[23:04:09] [Render thread/INFO]: Setting user: Player979
+[23:04:09] [Render thread/INFO]: Backend library: LWJGL version 3.2.2 SNAPSHOT
+No protocol specified
+---- Minecraft Crash Report ----
+// Uh... Did I do that?
+
+Time: 2/1/24 11:04 PM
+Description: Initializing game
+
+java.lang.IllegalStateException: Failed to initialize GLFW, errors: GLFW error during init: [0x10008]23456247901808
+	at com.mojang.blaze3d.platform.GLX._initGlfw(GLX.java:80)
+	at com.mojang.blaze3d.systems.RenderSystem.initBackendSystem(RenderSystem.java:586)
+	at net.minecraft.client.Minecraft.<init>(Minecraft.java:406)
+	at net.minecraft.client.main.Main.main(Main.java:154)
+
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: Render thread
+Stacktrace:
+	at com.mojang.blaze3d.platform.GLX._initGlfw(GLX.java:80)
+	at com.mojang.blaze3d.systems.RenderSystem.initBackendSystem(RenderSystem.java:586)
+	at net.minecraft.client.Minecraft.<init>(Minecraft.java:406)
+
+-- Initialization --
+Details:
+Stacktrace:
+	at net.minecraft.client.main.Main.main(Main.java:154)
+
+-- System Details --
+Details:
+	Minecraft Version: 1.16.5
+	Minecraft Version ID: 1.16.5
+	Operating System: Linux (amd64) version 4.18.0-372.9.1.el8.x86_64
+	Java Version: 1.8.0_181, Oracle Corporation
+	Java VM Version: Java HotSpot(TM) 64-Bit Server VM (mixed mode), Oracle Corporation
+	Memory: 2083260256 bytes (1986 MB) / 2274361344 bytes (2169 MB) up to 3817865216 bytes (3641 MB)
+	CPUs: 20
+	JVM Flags: 1 total; -Xmx4G
+	Launched Version: ~~NULL~~
+	Backend library: LWJGL version 3.2.2 SNAPSHOT
+	Backend API: NO CONTEXT
+	GL Caps: 
+	Using VBOs: Yes
+	Is Modded: Very likely; Jar signature invalidated
+	Type: Client (map_client.txt)
+	CPU: <unknown>
+#@!@# Game crashed! Crash report saved to: #@!@# /gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/minerl/MCP-Reborn/./crash-reports/crash-2024-02-01_23.04.10-client.txt
+
+
+Minecraft process finished unexpectedly. There was an error with Malmo.

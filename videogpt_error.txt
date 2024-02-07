@@ -1,0 +1,216 @@
+No protocol specified
+No protocol specified
+xcb_connection_has_error() returned true
+No protocol specified
+ALSA lib confmisc.c:767:(parse_card) cannot find card '0'
+ALSA lib conf.c:4568:(_snd_config_evaluate) function snd_func_card_driver returned error: No such file or directory
+ALSA lib confmisc.c:392:(snd_func_concat) error evaluating strings
+ALSA lib conf.c:4568:(_snd_config_evaluate) function snd_func_concat returned error: No such file or directory
+ALSA lib confmisc.c:1246:(snd_func_refer) error evaluating name
+ALSA lib conf.c:4568:(_snd_config_evaluate) function snd_func_refer returned error: No such file or directory
+ALSA lib conf.c:5047:(snd_config_expand) Evaluate error: No such file or directory
+ALSA lib pcm.c:2565:(snd_pcm_open_noupdate) Unknown PCM default
+No protocol specified
+xcb_connection_has_error() returned true
+No protocol specified
+ALSA lib confmisc.c:767:(parse_card) cannot find card '0'
+ALSA lib conf.c:4568:(_snd_config_evaluate) function snd_func_card_driver returned error: No such file or directory
+ALSA lib confmisc.c:392:(snd_func_concat) error evaluating strings
+ALSA lib conf.c:4568:(_snd_config_evaluate) function snd_func_concat returned error: No such file or directory
+ALSA lib confmisc.c:1246:(snd_func_refer) error evaluating name
+ALSA lib conf.c:4568:(_snd_config_evaluate) function snd_func_refer returned error: No such file or directory
+ALSA lib conf.c:5047:(snd_config_expand) Evaluate error: No such file or directory
+ALSA lib pcm.c:2565:(snd_pcm_open_noupdate) Unknown PCM default
+Total CUDA devices: 4
+Current CUDA device index: 0
+Current CUDA device name: NVIDIA A100 80GB PCIe
+Logging to viper_rl_data/checkpoints/dmc_videogpt_l16_s1
+wandb: Currently logged in as: qp2134 (olab). Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.16.2
+wandb: Run data is saved locally in /gpfs/data/oermannlab/users/qp2040/VIPER-torch/wandb/run-20240205_165716-dmc_videogpt_l16_s12024_02_05_16_57_14
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run dmc_videogpt_l16_s12024_02_05_16_57_14
+wandb: ⭐️ View project at https://wandb.ai/olab/videogpt
+wandb: 🚀 View run at https://wandb.ai/olab/videogpt/runs/dmc_videogpt_l16_s12024_02_05_16_57_14
+wandb: WARNING Calling wandb.run.save without any arguments is deprecated.Changes to attributes are automatically persisted.
+videogpt batch size: 64
+Number of data is 53128
+Number of data is 35612
+Number of data is 35844
+Number of data is 44486
+Number of data is 36540
+Number of data is 44022
+Number of data is 27840
+Number of data is 36946
+Number of data is 48604
+Number of data is 29116
+Number of data is 33118
+Number of data is 27550
+Number of data is 27550
+Number of data is 27550
+Number of data is 27550
+Number of data is 25810
+Number of data is 2150
+Total number of data is 563416
+videogpt batch size: 64
+Number of data is 2842
+Number of data is 1914
+Number of data is 1914
+Number of data is 2378
+Number of data is 1972
+Number of data is 2320
+Number of data is 1508
+Number of data is 1972
+Number of data is 2610
+Number of data is 1566
+Number of data is 1798
+Number of data is 1508
+Number of data is 1508
+Number of data is 1508
+Number of data is 1508
+Number of data is 1392
+Number of data is 129
+Total number of data is 30347
+downsample stride dimension is 2
+downsample stride dimension is 2
+downsample stride dimension is 2
+upsample stride dimension is 2
+upsample stride dimension is 2
+upsample stride dimension is 2
+load vqgan weights from viper_rl_data/checkpoints/dmc_vqgan/checkpoints/checkpoint_116000.pth
+load videogpt weights from viper_rl_data/checkpoints/dmc_videogpt_l16_s1/checkpoints/checkpoint_260000.pth
+Restored from checkpoint viper_rl_data/checkpoints/dmc_videogpt_l16_s1, at iteration 260000
+model parameter count: 7078320
+['manipulator_bring_ball', 'quadruped_run', 'reacher_hard', 'manipulator_bring_ball', 'acrobot_swingup', 'cartpole_swingup', 'finger_turn_hard', 'pendulum_swingup', 'finger_spin', 'acrobot_swingup', 'cartpole_swingup', 'finger_spin', 'pendulum_swingup', 'cartpole_swingup', 'quadruped_run', 'reacher_hard', 'cup_catch', 'cup_catch', 'reacher_easy', 'pendulum_swingup', 'quadruped_walk', 'finger_spin', 'acrobot_swingup', 'manipulator_bring_ball', 'finger_spin', 'acrobot_swingup', 'pointmass_hard', 'reacher_hard', 'cartpole_balance', 'reacher_easy', 'cheetah_run', 'finger_spin', 'quadruped_run', 'cheetah_run', 'cartpole_swingup', 'quadruped_walk', 'cheetah_run', 'reacher_hard', 'reacher_easy', 'pendulum_swingup', 'cartpole_balance', 'finger_spin', 'finger_turn_hard', 'reacher_hard', 'finger_spin', 'manipulator_bring_ball', 'acrobot_swingup', 'cup_catch', 'cup_catch', 'finger_turn_hard', 'finger_spin', 'hopper_stand', 'pointmass_hard', 'cheetah_run', 'pointmass_easy', 'pointmass_hard', 'pendulum_swingup', 'hopper_stand', 'pointmass_easy', 'manipulator_bring_ball', 'cartpole_balance', 'acrobot_swingup', 'cartpole_swingup', 'cheetah_run', 'hopper_stand', 'manipulator_bring_ball', 'hopper_stand', 'pointmass_easy', 'reacher_hard', 'quadruped_run', 'manipulator_bring_ball', 'cartpole_swingup', 'quadruped_run', 'cartpole_swingup', 'hopper_stand', 'hopper_stand', 'cheetah_run', 'pointmass_hard', 'manipulator_bring_ball', 'pendulum_swingup', 'manipulator_bring_ball', 'pointmass_easy', 'pendulum_swingup', 'pendulum_swingup', 'reacher_easy', 'cartpole_swingup', 'finger_spin', 'quadruped_walk', 'acrobot_swingup', 'cartpole_swingup', 'cartpole_balance', 'cartpole_balance', 'pendulum_swingup', 'cheetah_run', 'finger_spin', 'manipulator_bring_ball', 'finger_spin', 'acrobot_swingup', 'cartpole_balance', 'cheetah_run', 'cup_catch', 'cartpole_balance', 'acrobot_swingup', 'reacher_easy', 'cartpole_balance', 'finger_turn_hard', 'pendulum_swingup', 'finger_spin', 'reacher_hard', 'hopper_stand', 'manipulator_bring_ball', 'acrobot_swingup', 'quadruped_run', 'manipulator_bring_ball', 'acrobot_swingup', 'cartpole_swingup', 'cheetah_run', 'pointmass_easy', 'pendulum_swingup', 'manipulator_bring_ball', 'reacher_hard', 'cartpole_balance', 'acrobot_swingup', 'cup_catch', 'manipulator_bring_ball', 'acrobot_swingup', 'cheetah_run', 'manipulator_bring_ball', 'cup_catch', 'cartpole_swingup', 'cheetah_run', 'finger_turn_hard', 'quadruped_walk', 'cup_catch', 'reacher_hard', 'finger_spin', 'cartpole_balance', 'acrobot_swingup', 'pointmass_easy', 'walker_walk', 'cartpole_balance', 'cup_catch', 'cartpole_balance', 'quadruped_walk', 'finger_turn_hard', 'quadruped_run', 'quadruped_walk', 'hopper_stand', 'hopper_stand', 'cup_catch', 'cartpole_swingup', 'cup_catch', 'pointmass_hard', 'cheetah_run', 'cartpole_balance', 'cup_catch', 'cup_catch', 'pendulum_swingup', 'cheetah_run', 'pointmass_hard', 'quadruped_run', 'acrobot_swingup', 'quadruped_run', 'pointmass_hard', 'finger_spin', 'pointmass_easy', 'acrobot_swingup', 'manipulator_bring_ball', 'reacher_hard', 'pointmass_hard', 'finger_spin', 'quadruped_run', 'pointmass_easy', 'finger_spin', 'reacher_easy', 'pendulum_swingup', 'manipulator_bring_ball', 'cartpole_swingup', 'quadruped_walk', 'hopper_stand', 'cup_catch', 'finger_turn_hard', 'cartpole_swingup', 'manipulator_bring_ball', 'finger_turn_hard', 'acrobot_swingup', 'cup_catch', 'reacher_hard', 'pointmass_easy', 'pointmass_easy', 'pointmass_easy', 'reacher_easy', 'quadruped_run', 'acrobot_swingup', 'cheetah_run', 'pendulum_swingup', 'finger_spin', 'cheetah_run', 'pointmass_easy', 'finger_turn_hard', 'cup_catch', 'reacher_hard', 'pointmass_easy', 'hopper_stand', 'cup_catch', 'finger_turn_hard', 'cartpole_swingup', 'pointmass_hard', 'cheetah_run', 'pendulum_swingup', 'pointmass_hard', 'quadruped_walk', 'finger_spin', 'acrobot_swingup', 'pointmass_hard', 'cheetah_run', 'finger_spin', 'pendulum_swingup', 'cup_catch', 'pendulum_swingup', 'cheetah_run', 'quadruped_run', 'acrobot_swingup', 'cheetah_run', 'hopper_stand', 'manipulator_bring_ball', 'cartpole_swingup', 'cartpole_swingup', 'cheetah_run', 'cheetah_run', 'finger_spin', 'finger_spin', 'cartpole_swingup', 'cartpole_swingup', 'acrobot_swingup', 'acrobot_swingup', 'pointmass_easy', 'cheetah_run', 'reacher_easy', 'reacher_hard', 'quadruped_run', 'pendulum_swingup', 'manipulator_bring_ball', 'finger_spin', 'manipulator_bring_ball', 'cheetah_run', 'manipulator_bring_ball', 'cheetah_run', 'cup_catch', 'quadruped_run', 'cheetah_run', 'reacher_easy', 'cartpole_balance', 'pendulum_swingup', 'cartpole_swingup', 'finger_spin']
+Traceback (most recent call last):
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/scripts/train_videogpt.py", line 408, in <module>
+    main(config)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/scripts/train_videogpt.py", line 112, in main
+    train_videogpt(rank, config, gpt, train_dataset, test_dataset)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/scripts/train_videogpt.py", line 175, in train_videogpt
+    iteration, gpt = train(iteration, gpt, train_loader, test_loader, sampler, config, device)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/scripts/train_videogpt.py", line 211, in train
+    visualize(sampler, iteration, gpt, test_loader)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/scripts/train_videogpt.py", line 339, in visualize
+    samples = sampler(batch) # .copy()
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/viper_rl/videogpt/sampler.py", line 30, in __call__
+    batch = self.model.ae.prepare_batch(batch)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/viper_rl/videogpt/models/__init__.py", line 138, in prepare_batch
+    encodings = self.encode(video)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/viper_rl/videogpt/models/__init__.py", line 112, in encode
+    out = self.ae.encode(video)
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1695, in __getattr__
+    raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+AttributeError: 'DataParallel' object has no attribute 'encode'
+Traceback (most recent call last):
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/scripts/train_videogpt.py", line 408, in <module>
+    main(config)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/scripts/train_videogpt.py", line 112, in main
+    train_videogpt(rank, config, gpt, train_dataset, test_dataset)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/scripts/train_videogpt.py", line 175, in train_videogpt
+    iteration, gpt = train(iteration, gpt, train_loader, test_loader, sampler, config, device)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/scripts/train_videogpt.py", line 211, in train
+    visualize(sampler, iteration, gpt, test_loader)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/scripts/train_videogpt.py", line 339, in visualize
+    samples = sampler(batch) # .copy()
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/viper_rl/videogpt/sampler.py", line 30, in __call__
+    batch = self.model.ae.prepare_batch(batch)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/viper_rl/videogpt/models/__init__.py", line 138, in prepare_batch
+    encodings = self.encode(video)
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/viper_rl/videogpt/models/__init__.py", line 112, in encode
+    out = self.ae.encode(video)
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1695, in __getattr__
+    raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+AttributeError: 'DataParallel' object has no attribute 'encode'
+wandb: - 0.007 MB of 0.007 MB uploadedwandb: \ 0.007 MB of 0.007 MB uploadedwandb: | 0.007 MB of 0.016 MB uploadedwandb: / 0.016 MB of 0.024 MB uploadedwandb: 🚀 View run dmc_videogpt_l16_s12024_02_05_16_57_14 at: https://wandb.ai/olab/videogpt/runs/dmc_videogpt_l16_s12024_02_05_16_57_14
+wandb: ️⚡ View job at https://wandb.ai/olab/videogpt/jobs/QXJ0aWZhY3RDb2xsZWN0aW9uOjEzNzEyMTI5Nw==/version_details/v2
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20240205_165716-dmc_videogpt_l16_s12024_02_05_16_57_14/logs
+Exception in thread NetStatThr:
+Traceback (most recent call last):
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/threading.py", line 1016, in _bootstrap_inner
+Exception in thread ChkStopThr:
+Traceback (most recent call last):
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/threading.py", line 1016, in _bootstrap_inner
+        self.run()self.run()
+
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/threading.py", line 953, in run
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/wandb_run.py", line 286, in check_stop_status
+    self._target(*self._args, **self._kwargs)
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/wandb_run.py", line 268, in check_network_status
+    self._loop_check_status(    
+self._loop_check_status(  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/wandb_run.py", line 224, in _loop_check_status
+
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/wandb_run.py", line 224, in _loop_check_status
+    local_handle = request()
+      File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/interface/interface.py", line 784, in deliver_stop_status
+local_handle = request()
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/interface/interface.py", line 792, in deliver_network_status
+        return self._deliver_network_status(status)return self._deliver_stop_status(status)
+
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/interface/interface_shared.py", line 500, in _deliver_network_status
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/interface/interface_shared.py", line 484, in _deliver_stop_status
+    return self._deliver_record(record)    
+return self._deliver_record(record)  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/interface/interface_shared.py", line 449, in _deliver_record
+
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/interface/interface_shared.py", line 449, in _deliver_record
+    handle = mailbox._deliver_record(record, interface=self)    
+handle = mailbox._deliver_record(record, interface=self)  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/lib/mailbox.py", line 455, in _deliver_record
+
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/lib/mailbox.py", line 455, in _deliver_record
+        interface._publish(record)interface._publish(record)
+
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/interface/interface_sock.py", line 51, in _publish
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/interface/interface_sock.py", line 51, in _publish
+        self._sock_client.send_record_publish(record)self._sock_client.send_record_publish(record)
+
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/lib/sock_client.py", line 221, in send_record_publish
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/lib/sock_client.py", line 221, in send_record_publish
+        self.send_server_request(server_req)self.send_server_request(server_req)
+
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/lib/sock_client.py", line 155, in send_server_request
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/lib/sock_client.py", line 155, in send_server_request
+    self._send_message(msg)    
+self._send_message(msg)  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/lib/sock_client.py", line 152, in _send_message
+
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/lib/sock_client.py", line 152, in _send_message
+    self._sendall_with_error_handle(header + data)    
+self._sendall_with_error_handle(header + data)  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/lib/sock_client.py", line 130, in _sendall_with_error_handle
+
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/wandb/sdk/lib/sock_client.py", line 130, in _sendall_with_error_handle
+    sent = self._sock.send(data)
+BrokenPipeError    sent = self._sock.send(data): 
+[Errno 32] Broken pipeBrokenPipeError
+: [Errno 32] Broken pipe
+[2024-02-05 17:04:54,586] torch.distributed.elastic.multiprocessing.api: [ERROR] failed (exitcode: 1) local_rank: 0 (pid: 1561539) of binary: /gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/bin/python
+Traceback (most recent call last):
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/bin/torchrun", line 8, in <module>
+    sys.exit(main())
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 346, in wrapper
+    return f(*args, **kwargs)
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/torch/distributed/run.py", line 806, in main
+    run(args)
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/torch/distributed/run.py", line 797, in run
+    elastic_launch(
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 134, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 264, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+scripts/train_videogpt.py FAILED
+------------------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2024-02-05_17:04:54
+  host      : a100-4007.cm.cluster
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 1561539)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

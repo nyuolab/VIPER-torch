@@ -17,7 +17,6 @@ sys.path.append(str(directory.parent))
 from viper_rl.videogpt import weight_init
 
 
-
 class VideoGPT(nn.Module):
     def __init__(self, config, ae):
         super(VideoGPT, self).__init__()
@@ -26,6 +25,7 @@ class VideoGPT(nn.Module):
         self.ae = ae
         # self.device = config.device if device is None else device
         self.shape = (config.seq_len, *ae.latent_shape(config.image_size)) # (16, 8, 8)
+        print("VideoGPT input dimension is {}".format(self.shape))
         self.model = Transformer(
             config.image_size,
             config.ae["embed_dim"],
@@ -35,6 +35,14 @@ class VideoGPT(nn.Module):
             n_classes=self.config.n_classes,
         )
         self.ema_decay = config.ema
+
+        # Create mask (torch.tril can be used for triangular mask)
+        L = np.prod(self.shape) # 1024
+        if self.config.ddp or self.config.dp:
+            self.mask = torch.tril(torch.ones((L*self.config.num_device, L), dtype=torch.bool))
+        else:
+            self.mask = torch.tril(torch.ones((L, L), dtype=torch.bool))
+        print("VideoGPT mask dimension is {}".format(self.mask.shape))
 
         self.model.apply(weight_init)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config.lr)
@@ -67,14 +75,10 @@ class VideoGPT(nn.Module):
         if self.config.class_cond:
             assert label is not None, "label is required for class conditioned model"
 
-        # Create mask (torch.tril can be used for triangular mask)
-        L = np.prod(self.shape) # 1024
-        mask = torch.tril(torch.ones((L, L), dtype=torch.bool)).to(self.device)
-
         if self.config.class_cond:
             label = F.one_hot(label.long(), num_classes=self.config.n_classes).float()
 
-        return self.model(embeddings, mask=mask, label=label, decode_step=decode_step, training=training)
+        return self.model(embeddings, mask=self.mask, label=label, decode_step=decode_step, training=training)
 
     @property
     def metrics(self):

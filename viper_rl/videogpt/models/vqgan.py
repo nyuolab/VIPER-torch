@@ -64,19 +64,19 @@ class VQGAN(nn.Module):
 
     def reconstruct(self, image):
         # print(image.shape)
-        vq_out = self.encode(image, deterministic=True)
+        vq_out = self.forward(image, deterministic=True)
         recon = self.decode(vq_out['encodings'], deterministic=True)
         return recon
 
-    def encode(self, image, deterministic=True):
-        # print(image.shape) # (128, 3, 64, 64)
-        h = self.encoder(image) #, deterministic=deterministic)
-        # print(h.shape)
-        h = self.quant_conv(h)
-        # print(h.shape)
-        # progress
-        vq_out = self.quantize(h)
-        return vq_out
+    # def encode(self, image, deterministic=True):
+    #     # print(image.shape) # (128, 3, 64, 64)
+    #     h = self.encoder(image) #, deterministic=deterministic)
+    #     # print(h.shape)
+    #     h = self.quant_conv(h)
+    #     # print(h.shape)
+    #     # progress
+    #     vq_out = self.quantize(h)
+    #     return vq_out
     
     def decode(self, encodings, is_embed=False, deterministic=True):
         # print(encodings.shape)
@@ -85,16 +85,32 @@ class VQGAN(nn.Module):
         recon = self.decoder(self.post_quant_conv(encodings)) #, deterministic)
         return recon
  
-    def forward(self, image, deterministic=True):
-        vq_out = self.encode(image, deterministic=deterministic)
-        # print(vq_out['embeddings'].shape) # [128, 64, 8, 8]
-        recon = self.decode(vq_out['embeddings'], is_embed=True,
-                            deterministic=deterministic)
-        return {
-            'recon': recon,
-            'vq_loss': vq_out['vq_loss'],
-            'perplexity': vq_out['perplexity']
-        }
+    def forward(self, image, encode=True, decode=False, is_embed=True, lookup=False, permute=True, deterministic=True):
+        # vq_out = self.encoder(image, deterministic=deterministic)
+        if lookup:
+            return self.quantize(None, image, permute=permute)
+        if encode:  
+            h = self.encoder(image) #, deterministic=deterministic)
+            # print(h.shape)
+            h = self.quant_conv(h)
+            # print(h.shape)
+            # progress
+            vq_out = self.quantize(h)
+            # print(vq_out['embeddings'].shape) # [128, 64, 8, 8]
+            if not decode:
+                return vq_out
+            else:
+                recon = self.decode(vq_out['embeddings'], is_embed=is_embed,
+                                    deterministic=deterministic)
+                return {
+                    'recon': recon,
+                    'vq_loss': vq_out['vq_loss'],
+                    'perplexity': vq_out['perplexity']
+                }
+        else:
+            recon = self.decode(image, is_embed=is_embed,
+                                deterministic=deterministic)
+            return recon
 
 class VectorQuantizer(nn.Module):
     def __init__(self, n_e, e_dim, beta=0.25):

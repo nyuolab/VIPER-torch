@@ -12,7 +12,7 @@ import yaml
 import pickle
 import wandb
 import random
-from datetime import datetime
+import datetime
 
 
 import torch
@@ -49,7 +49,7 @@ def main():
     rank = 0
     
     if config.ddp:
-        dist.init_process_group(backend='nccl')
+        # dist.init_process_group(backend='nccl')
         # rank = dist.get_rank()
         print(f"Start running basic DDP on rank {rank}.")
         dist.init_process_group(backend='gloo', rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=5))
@@ -269,7 +269,7 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--config', type=str, required=True)
     args = parser.parse_args()
 
-    args.run_id = args.output_dir.split('/')[-1] + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    args.run_id = args.output_dir.split('/')[-1] + datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
     if torch.cuda.is_available():
         print(f'Total CPUs: {os.cpu_count()}')

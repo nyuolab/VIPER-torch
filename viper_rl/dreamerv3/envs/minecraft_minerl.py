@@ -8,7 +8,7 @@ from minerl.herobraine.hero.mc import INVERSE_KEYMAP
 def edit_options(**kwargs):
     import os, pathlib, re
 
-    for word in os.popen("pip3 --version").read().split(" "):
+    for word in os.popen("pip --version").read().split(" "):
         if "-packages/pip" in word:
             break
     else:
@@ -93,9 +93,9 @@ class MineRLEnv(EnvSpec):
             handlers.CameraAction(),
             handlers.PlaceBlock(["none"] + mc.ALL_ITEMS, **kw),
             handlers.EquipAction(["none"] + mc.ALL_ITEMS, **kw),
-            handlers.CraftAction(["none"] + mc.ALL_ITEMS, **kw),
-            handlers.CraftNearbyAction(["none"] + mc.ALL_ITEMS, **kw),
-            handlers.SmeltItemNearby(["none"] + mc.ALL_ITEMS, **kw),
+            # handlers.CraftAction(["none"] + mc.ALL_ITEMS, **kw),
+            # handlers.CraftNearbyAction(["none"] + mc.ALL_ITEMS, **kw),
+            # handlers.SmeltItemNearby(["none"] + mc.ALL_ITEMS, **kw),
         ]
 
     def is_from_folder(self, folder):

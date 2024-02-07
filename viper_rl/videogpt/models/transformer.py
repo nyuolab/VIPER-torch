@@ -35,7 +35,7 @@ class Transformer(nn.Module):
         self.norm = LayerNorm(embed_dim, n_classes)  # Assuming LayerNorm is already defined
         self.dense_out = nn.Linear(embed_dim, out_dim)
 
-    def position_bias_to_device(self):
+    def position_bias_to_device(self, dp=False):
         # self.position_bias = BroadcastPositionBiases(self.shape, self.embed_dim, self.device)
         self.position_bias.embs.to(self.device)
 
@@ -53,6 +53,8 @@ class Transformer(nn.Module):
             x = x if decode_step > 0 else x_shift
 
         position_bias = self.position_bias(x)
+        # if decode_step is not None:
+        #     position_bias = tensor_slice(position_bias, [0, *decode_idx, 0], [x.shape[0], *(1,) * -1, x.shape[-1]])
 
         if decode_step is not None and x.shape[1] == 1:
             position_bias = position_bias[decode_step]
@@ -69,6 +71,7 @@ class Transformer(nn.Module):
         x = self.dropout(x)
 
         # progress
+        # print(mask.shape)
         for layer in self.layers:
             x = layer(x, mask=mask, label=label, decode_step=decode_step, training=training)
         
@@ -185,7 +188,7 @@ class DotProductAttention(nn.Module):
         query = query.reshape(batch_size, seq_length, -1) #.transpose(0, 1)
         key = key.reshape(batch_size, seq_length, -1) #.transpose(0, 1)
         value = value.reshape(batch_size, seq_length, -1) #.transpose(0, 1)
-
+        
         if attn_mask is not None:
             # Unsqueeze and expand the mask to match the batch size
             # attn_mask = attn_mask.masked_fill(attn_mask == 0, -float('inf'))
@@ -275,7 +278,9 @@ class MultiHeadAttention(nn.Module):
         # print("key has shape {}".format(key.shape))
         # print("value has shape {}".format(value.shape))
         # torch.Size([64, 1024, 8, 32])
-
+        # print("MultiHeadAttention")
+        # print(mask.shape)
+        attn_mask = mask
         if decode_step is not None:
             # if self.cached_key is None or self.cached_value is None:
             #     self.cached_key = key
@@ -290,11 +295,12 @@ class MultiHeadAttention(nn.Module):
 
             # key = self.cached_key
             # value = self.cached_value
-
+            # print(mask.shape)
             if mask is not None and inputs.shape[1] == 1:
-                mask = mask[decode_step, None]
-                mask = mask[:, :key.shape[1]]
+                attn_mask = mask[decode_step, None]
+                attn_mask = attn_mask[:, :key.shape[1]]
                 # print("The mask shape is {}".format(mask.shape))
+            
 
         # Attention computation
         # attn_output, _ = F.multi_head_attention_forward(
@@ -314,7 +320,7 @@ class MultiHeadAttention(nn.Module):
             key=key,
             value=value,
             qkv_proj=self.qkv_proj,
-            attn_mask=mask,
+            attn_mask=attn_mask,
             training=training,
         )
         
@@ -336,47 +342,63 @@ class MultiHeadAttention(nn.Module):
 
 
 class LayerNorm(nn.Module):
-    def __init__(self, features, n_classes, epsilon=1e-6, use_bias=True, use_scale=True):
+    def __init__(self, embed_dim, n_classes, epsilon=1e-6):
         super(LayerNorm, self).__init__()
-        self.features = features
+        self.embed_dim = embed_dim
         self.n_classes = n_classes
         self.epsilon = epsilon
-        self.use_bias = use_bias
-        self.use_scale = use_scale
-        if use_bias:
-            self.bias = nn.Parameter(torch.zeros(features))
-        if use_scale:
-            self.scale = nn.Parameter(torch.ones(features))
+        self.conditional = n_classes is not None
         
-        self.scale_linear = nn.Linear(n_classes, features, bias=False)
-        self.bias_linear = nn.Linear(n_classes, features, bias=False)
-        
+        if self.conditional:
+            self.w = nn.Linear(n_classes, embed_dim, bias=False)
+            nn.init.constant_(self.w.weight.data, 1. / np.sqrt(n_classes))
+            self.wb = nn.Linear(n_classes, embed_dim, bias=False)
+        else:
+            self.g = nn.Parameter(torch.ones(embed_dim, dtype=torch.float32), requires_grad=True)
+            self.b = nn.Parameter(torch.zeros(embed_dim, dtype=torch.float32), requires_grad=True)
 
-    def forward(self, x, cond=None):
+    def forward(self, x, cond):
+        if self.conditional:  # (b, cond_dim)
+            g = 1 + self.w(cond).view(x.shape[0], *(1,)*(len(x.shape)-2), x.shape[-1]) # (b, ..., embed_dim)
+            b = self.wb(cond).view(x.shape[0], *(1,)*(len(x.shape)-2), x.shape[-1])
+        else:
+            g = self.g  # (embed_dim,)
+            b = self.b
+
+        x_float = x.float()
+
+        mu = x_float.mean(dim=-1, keepdims=True)
+        s = (x_float - mu).square().mean(dim=-1, keepdims=True)
+        x_float = (x_float - mu) * (1e-5 + s.rsqrt())  # (b, ..., embed_dim)
+        x_float = x_float * g + b
+
+        x = x_float.type_as(x)
+        return x
         # print(x.shape)
-        mean = x.mean(dim=-1, keepdim=True)
-        var = x.var(dim=-1, keepdim=True, unbiased=False)
-        # print(cond.dtype)
-        y = x - mean
-        mul = torch.rsqrt(var + self.epsilon)
-        if self.use_scale:
-            if cond is None:
-                mul = mul * self.scale
-            else:
-                scale = self.scale_linear(cond)
-                scale = scale.reshape(scale.shape[0], *((1,) * (len(x.shape) - 2)), scale.shape[-1])
-                mul = mul * (1 + scale)
-        y = y * mul
 
-        if self.use_bias:
-            if cond is None:
-                y = y + self.bias
-            else:
-                bias = self.bias_linear(cond)
-                bias = bias.reshape(bias.shape[0], *((1,) * (len(x.shape) - 2)), bias.shape[-1])
-                y = y + bias
+        # mean = x.mean(dim=-1, keepdim=True)
+        # var = x.var(dim=-1, keepdim=True, unbiased=False)
+        # # print(cond.dtype)
+        # y = x - mean
+        # mul = torch.rsqrt(var + self.epsilon)
+        # if self.use_scale:
+        #     if cond is None:
+        #         mul = mul * self.scale
+        #     else:
+        #         scale = self.scale_linear(cond)
+        #         scale = scale.reshape(scale.shape[0], *((1,) * (len(x.shape) - 2)), scale.shape[-1])
+        #         mul = mul * (1 + scale)
+        # y = y * mul
 
-        return y
+        # if self.use_bias:
+        #     if cond is None:
+        #         y = y + self.bias
+        #     else:
+        #         bias = self.bias_linear(cond)
+        #         bias = bias.reshape(bias.shape[0], *((1,) * (len(x.shape) - 2)), bias.shape[-1])
+        #         y = y + bias
+
+        # return y
 
 
 class BroadcastPositionBiases(nn.Module):
@@ -403,7 +425,7 @@ class BroadcastPositionBiases(nn.Module):
         for i in range(self.n_dim):
             self.embs.append(nn.Parameter(torch.randn(self.shape[i], chunk_sizes[i]) * 0.02))
 
-    def forward(self, x):
+    def forward(self, x, decode_step=None, decode_idx=None):
         out = []
         for i, e in enumerate(self.embs):
             e = e.view((1,) + (1,) * i + (self.shape[i],) + (1,) * (self.n_dim - i - 1) + (-1,))
@@ -412,17 +434,29 @@ class BroadcastPositionBiases(nn.Module):
 
         out = torch.cat(out, dim=-1)
         out = out.view((-1, self.embed_dim))
-        return out    
+        
+        return out
 
 
 class RightShift(nn.Module):
     def __init__(self, channel_size):
         super(RightShift, self).__init__()
-        self.sos = nn.Parameter(torch.randn(channel_size) * 0.02)
+        self.embed_dim = channel_size
+        self.sos = nn.Parameter(torch.FloatTensor(channel_size).normal_(std=0.02), requires_grad=True)
 
-    def forward(self, x):
-        # Creating a tensor of shape [batch_size, 1, channel_size] for sos
-        sos = self.sos.unsqueeze(0).unsqueeze(1).expand(x.size(0), 1, -1)
-        # Concatenating sos at the beginning of each sequence in the batch
-        x_shifted = torch.cat([sos, x[:, :-1]], dim=1)
-        return x_shifted
+    def forward(self, x, decode_step=None):
+        if decode_step is not None and decode_step > 0:
+            return x
+        # # Creating a tensor of shape [batch_size, 1, channel_size] for sos
+        # sos = self.sos.unsqueeze(0).unsqueeze(1).expand(x.size(0), 1, -1)
+        # # Concatenating sos at the beginning of each sequence in the batch
+        # x_shifted = torch.cat([sos, x[:, :-1]], dim=1)
+        
+        x_shape = list(x.shape)
+        x = x.flatten(start_dim=1, end_dim=-2) # (batch, seq_len, embed_dim)
+        sos = torch.ones(x_shape[0], 1, self.embed_dim, dtype=torch.float32).to(self.sos) * self.sos
+        sos = sos.type_as(x)
+        x = torch.cat([sos, x[:, :-1, :]], axis=1)
+        x = x.view(*x_shape)
+
+        return x

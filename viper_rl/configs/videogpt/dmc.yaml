@@ -1,6 +1,6 @@
 seed: 1234
 
-batch_size: 75
+batch_size: 64
 lr: 1.e-4
 total_steps: 800000
 warmup_steps: 1
@@ -21,6 +21,7 @@ seq_len: 16
 frame_skip: 1
 ae_ckpt: "viper_rl_data/checkpoints/dmc_vqgan"
 ddp: False
+dp: True
 
 ae:
   image_size: 64

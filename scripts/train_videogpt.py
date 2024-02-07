@@ -10,13 +10,15 @@ import yaml
 import pickle
 import random
 import wandb
-from datetime import datetime, timedelta
+import datetime
+from datetime import timedelta
 import glob
 
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-from torch.nn.parallel import DistributedDataParallel as DDP
+# from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.nn import DataParallel as DP
 
 # global is_master_process
 
@@ -26,7 +28,10 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 # os.environ['NCCL_DEBUG'] = 'INFO'
 os.environ['GLOO_SOCKET_IFNAME'] = 'eth0'  # Replace 'eth0' with your interface name
 os.environ['GLOO_LOG_LEVEL'] = 'DEBUG'
-
+os.environ['NCCL_DEBUG'] = 'INFO'
+os.environ['MASTER_ADDR'] = 'localhost'
+os.environ['MASTER_PORT'] = '12355'
+        
 directory = pathlib.Path(__file__).resolve()
 directory = directory.parent
 sys.path.append(str(directory.parent))
@@ -45,13 +50,16 @@ def main(config):
     global model
     global ckpt_dir
     # global best_loss
-    
+    rank = int(os.getenv('LOCAL_RANK', 0))
     seed = config.seed
     torch.manual_seed(seed)
 
     config.best_loss = float('inf')
     config.ae["ddp"] = config.ddp
     config.num_device = torch.cuda.device_count()
+    
+    if config.ddp or config.dp:
+        config.batch_size *= config.num_device
 
     # Create a new generator (equivalent to a new stream of random numbers)
     new_generator = torch.Generator()
@@ -63,6 +71,7 @@ def main(config):
     ckpt_dir = osp.join(config.output_dir, 'checkpoints')
 
     # if is_master_process:
+    # if rank == 0:
     wandb.init(project='videogpt', config=config,
                 id=config.run_id, resume='allow', mode='online')
     wandb.run.name = config.run_id
@@ -100,22 +109,26 @@ def main(config):
             print(f'Restored from checkpoint {os.path.join(config.ckpt)}, at iteration {config.start_iter}')
 
     # if config.ddp:
-    #     mp.spawn(train_videogpt, args=(config, gpt, train_dataset, test_dataset), nprocs=world_size, join=True)
+    #     # dist.init_process_group(backend='nccl', world_size=world_size, timeout=datetime.timedelta(minutes=5))
+    #     # mp.spawn(train_videogpt, args=(config, gpt, train_dataset, test_dataset), nprocs=world_size, join=True)
     # else:
-    train_videogpt(0, config, gpt, train_dataset, test_dataset)
+    train_videogpt(rank, config, gpt, train_dataset, test_dataset)
 
 
 def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
     world_size = config.num_device
-    # dist.init_process_group(backend='gloo', rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=5))
     if config.ddp:
         # rank = dist.get_rank()
         print(f"Start running basic DDP on rank {rank}.")
-        dist.init_process_group(backend='gloo', rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=5))
+        # os.environ['MASTER_ADDR'] = 'localhost'
+        # os.environ['MASTER_PORT'] = '12355'
+        dist.init_process_group(backend='nccl', rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=5))
+        # dist.init_process_group(backend='gloo', rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=5))
         # create model and move it to GPU with id rank
+        torch.cuda.set_device(rank)
         device = rank % config.num_device
     else:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = "cuda" if torch.cuda.is_available() else "cpu" # torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     torch.cuda.manual_seed_all(config.seed)
 
@@ -126,20 +139,35 @@ def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
     gpt.device = device
     gpt.model.device = device
     gpt.ae.device = device
-
-    gpt.model.to(device)
-    gpt.optimizer = torch.optim.AdamW(gpt.model.parameters(), lr=config.lr)
-    gpt.ae.ae.to(device)
-    gpt.model.position_bias_to_device()
-    gpt.init_ema_params()
-
+    
     if config.ddp:
         gpt.ae.ae = DDP(gpt.ae.ae, device_ids=[device])
-        gpt.ae.ae = gpt.ae.ae.module
+        # gpt.ae.ae = gpt.ae.ae.module
         gpt.model = DDP(gpt.model, device_ids=[device])
+        # gpt.optimizer = torch.optim.AdamW(gpt.model.module.parameters(), lr=config.lr)
+        gpt.model.module.position_bias_to_device()
+    elif config.dp:
+        gpt.ae.ae = DP(gpt.ae.ae)
+        gpt.ae.ae.to(device)
+        # gpt.ae.ae = gpt.ae.ae.module
+        gpt.model = DP(gpt.model)
+        gpt.model.to(device)
+        # gpt.optimizer = torch.optim.AdamW(gpt.model.module.parameters(), lr=config.lr)
+        gpt.model.module.position_bias_to_device()
+    else:
+        gpt.ae.ae.to(device)
+        gpt.model.to(device)
+        # gpt.optimizer = torch.optim.AdamW(gpt.model.parameters(), lr=config.lr)
+        gpt.model.position_bias_to_device()
+    
+    gpt.optimizer = torch.optim.AdamW(gpt.model.parameters(), lr=config.lr)
+    gpt.mask.to(device)
+    gpt.init_ema_params()
+
+
     sampler = VideoGPTSampler(gpt)
 
-    if config.ddp: 
+    if config.ddp or config.dp:
         print_model_size(gpt.model.module)
     else:   
         print_model_size(gpt.model)
@@ -153,7 +181,7 @@ def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
     dist.destroy_process_group()     
     
 
-def train_step(batch, gpt, device, step, ddp=False):
+def train_step(batch, gpt, device, step):
     gpt.train()
 
     batch = {k: v.to(device) for k, v in batch.items()}
@@ -173,8 +201,6 @@ def train_step(batch, gpt, device, step, ddp=False):
             gpt.update_ema(decay)
     return gpt, loss
 
-
-
 def train(iteration, gpt, train_loader, test_loader, sampler, config, device):
     progress = ProgressMeter(
         config.total_steps,
@@ -193,7 +219,7 @@ def train(iteration, gpt, train_loader, test_loader, sampler, config, device):
         with torch.no_grad():
             batch = gpt.ae.prepare_batch(batch)
         # print(batch.keys())
-        gpt, return_dict = train_step(batch=batch, gpt=gpt, device=device, step=iteration, ddp=config.ddp)
+        gpt, return_dict = train_step(batch=batch, gpt=gpt, device=device, step=iteration)
 
         gpt.scheduler.step()
         # gpt.scheduler.step(iteration)
@@ -217,7 +243,7 @@ def train(iteration, gpt, train_loader, test_loader, sampler, config, device):
             progress.display(iteration)
 
         if iteration % config.test_interval == 0:
-            val_loss = validate(iteration, gpt, test_loader, device, config.ddp)
+            val_loss = validate(iteration, gpt, test_loader, device)
             # is_best = val_loss < config.best_loss
             config.best_loss = min(config.best_loss, val_loss)
     
@@ -226,7 +252,7 @@ def train(iteration, gpt, train_loader, test_loader, sampler, config, device):
             save_path = os.path.join(ckpt_dir, f'checkpoint_{iteration}.pth')
             torch.save({
                 'iteration': iteration,
-                'model_state_dict': gpt.model.module.state_dict() if config.ddp else gpt.model.state_dict(),
+                'model_state_dict': gpt.model.module.state_dict() if config.ddp or config.dp else gpt.model.state_dict(),
                 'optimizer_state_dict': gpt.optimizer.state_dict()
             }, save_path)
             print('Saved checkpoint to', save_path)
@@ -243,7 +269,7 @@ def train(iteration, gpt, train_loader, test_loader, sampler, config, device):
     return iteration, gpt
 
 
-def val_step(batch, gpt, device, ddp=False):
+def val_step(batch, gpt, device):
     gpt.eval()
 
     batch = {k: v.to(device) for k, v in batch.items()}
@@ -258,7 +284,7 @@ def val_step(batch, gpt, device, ddp=False):
     return loss
 
 
-def validate(iteration, gpt, test_loader, device, ddp):
+def validate(iteration, gpt, test_loader, device):
     metrics = gpt.metrics
     
     progress = ProgressMeter(
@@ -274,7 +300,7 @@ def validate(iteration, gpt, test_loader, device, ddp):
         progress.update(data=time.time() - end)
         with torch.no_grad():
             batch = gpt.ae.prepare_batch(batch)
-        return_dict = val_step(batch=batch, gpt=gpt, device=device, ddp=ddp)
+        return_dict = val_step(batch=batch, gpt=gpt, device=device)
         
         metrics = {k: return_dict[k].detach().cpu().numpy().mean() for k in metrics}
         metrics = {k: v.astype(np.float32) for k, v in metrics.items()}
@@ -286,11 +312,10 @@ def validate(iteration, gpt, test_loader, device, ddp):
         #     progress.display(i)
 
     progress.display(i)
-
-    
     metrics = {metric: progress.meters[metric].avg for metric in metrics}
 
     # if is_master_process:
+    # if rank == 0:
     wandb.log({**{f'val/{metric}': val
                     for metric, val in metrics.items()}
                 }, step=iteration)
@@ -329,6 +354,7 @@ def visualize(sampler, iteration, gpt, test_loader):
 
     videos = save_video_grid(videos)
     # if is_master_process:
+    
     videos = np.transpose(videos, (0, 3, 1, 2))
     table = wandb.Table(columns=["class"])
     for l in str_labels:
@@ -343,7 +369,7 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--config', type=str, required=True)
     args = parser.parse_args()
 
-    args.run_id = args.output_dir.split('/')[-1] + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    args.run_id = args.output_dir.split('/')[-1] + datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
     world_size = torch.cuda.device_count()
 

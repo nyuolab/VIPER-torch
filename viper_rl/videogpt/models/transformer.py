@@ -26,9 +26,10 @@ class Transformer(nn.Module):
         self.norm = LayerNorm(embed_dim, n_classes)  # Assuming LayerNorm is already defined
         self.dense_out = nn.Linear(embed_dim, out_dim)
 
-    def position_bias_to_device(self, dp=False):
+    def position_bias_to_device(self, device=None):
         # self.position_bias = BroadcastPositionBiases(self.shape, self.embed_dim, self.device)
-        self.position_bias.embs.to(self.device)
+        device = self.device if device is None else device
+        self.position_bias.embs.to(device)
 
     def forward(self, x, label=None, decode_step=None, decode_idx=None, training=False):
         old_shape = x.shape[1:-1]

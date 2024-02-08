@@ -175,7 +175,10 @@ class Dreamer(nn.Module):
         #     action = torch.one_hot(
         #         torch.argmax(action, dim=-1), self._config.num_actions
         #     )
-        # action = self._exploration(action, training)
+
+        # e-greedy
+        if expl_amount > 0:
+            action = self._exploration(action, training)
         # if isinstance(action, list):
         #     action = torch.cat(action, dim=-1)
         # from tensor to dictionary

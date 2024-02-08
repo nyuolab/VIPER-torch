@@ -112,10 +112,21 @@ def main(config):
     #     # dist.init_process_group(backend='nccl', world_size=world_size, timeout=datetime.timedelta(minutes=5))
     #     # mp.spawn(train_videogpt, args=(config, gpt, train_dataset, test_dataset), nprocs=world_size, join=True)
     # else:
-    train_videogpt(rank, config, gpt, train_dataset, test_dataset)
+    if config.ddp or config.dp:
+        gpt_eval = copy.deepcopy(gpt)
+        gpt_eval.ae.ae.to("cuda:0")
+        gpt_eval.model.to("cuda:0")
+        gpt_eval.model.position_bias_to_device(device="cuda:0")
+
+    if gpt_eval is None:
+        sampler = VideoGPTSampler(gpt)
+    else:
+        sampler = VideoGPTSampler(gpt_eval)
+
+    train_videogpt(rank, config, gpt, sampler, train_dataset, test_dataset)
 
 
-def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
+def train_videogpt(rank, config, gpt, sampler, train_dataset, test_dataset):
     world_size = config.num_device
     if config.ddp:
         # rank = dist.get_rank()
@@ -163,9 +174,6 @@ def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
     gpt.optimizer = torch.optim.AdamW(gpt.model.parameters(), lr=config.lr)
     # gpt.mask.to(device)
     gpt.init_ema_params()
-
-
-    sampler = VideoGPTSampler(gpt)
 
     if config.ddp or config.dp:
         print_model_size(gpt.model.module)
@@ -322,6 +330,9 @@ def validate(iteration, gpt, test_loader, device):
                   
     return metrics['loss']
 
+def copy_gpt_weight(dp_gpt, target_gpt):
+    target_gpt.ae.ae.load_state_dict(dp_gpt.ae.ae.module.state_dict())
+    target_gpt.load_state_dict(dp_gpt.module.state_dict())
 
 def visualize(sampler, iteration, gpt, test_loader):
     batch = next(iter(test_loader))
@@ -336,8 +347,30 @@ def visualize(sampler, iteration, gpt, test_loader):
     # if len(video.shape) == 5: # NBTHW
     #     video = gpt.ae.decode(video)
     # variables = {'params': model.ema_params if hasattr(model, 'ema_params') else model.parameters()}
-    sampler.model = gpt
-    samples = sampler(batch) # .copy()
+    copy_gpt_weight(gpt, sampler.model)
+    # sampler.model = gpt
+
+    ws = gpt.config.num_device
+
+    if ws > 1:
+        split_batches = [{} for _ in range(ws)]
+        # Iterate through each item in the batch
+        for key, value in batch.items():
+            # Split the tensor into k parts along the batch dimension
+            chunks = torch.chunk(value, ws, dim=0)
+            
+            # Distribute the chunks into the corresponding new dictionaries
+            for i, chunk in enumerate(chunks):
+                split_batches[i][key] = chunk
+        
+        sample_list = []
+        for b in split_batches:
+            sample_list.append(sampler(b))
+        samples = np.concatenate(sample_list, axis=0)
+
+    else:
+        samples = sampler(batch) # .copy()
+
     samples = samples.reshape(-1, *samples.shape[-4:])
     new_axes = tuple(range(samples.ndim - 3)) + (samples.ndim - 2, samples.ndim - 1, samples.ndim - 3)
     samples = np.transpose(samples, new_axes)

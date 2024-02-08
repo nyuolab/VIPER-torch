@@ -5,7 +5,7 @@ defaults:
   evaldir: null
   offline_traindir: ''
   offline_evaldir: ''
-  seed: 2
+  seed: 0
   deterministic_run: False
   steps: 1e8
   parallel: False
@@ -110,8 +110,8 @@ defaults:
   actor_max_std: 1.0
   actor_temp: 0.1
   expl_amount: 0.0
-  expl_decay_rate: 0.9997
-  expl_min: 0.0
+  expl_decay_rate: 0.999
+  expl_min: 0.01
   eval_state_mean: False
   value_decay: 0.0
   class_cond: True
@@ -121,7 +121,8 @@ defaults:
 
   # Exploration
   task_behavior: 'greedy'
-  expl_behavior: 'greedy'
+  # expl_behavior: 'greedy'
+  expl_behavior: 'plan2explore'
   expl_until: 0
   expl_extr_scale: 1.0
   expl_intr_scale: 1.0

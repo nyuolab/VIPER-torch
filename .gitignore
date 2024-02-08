@@ -6,6 +6,7 @@ vis_*
 result*
 viper_rl_data/checkpoints*
 viper_rl_data/datasets*
+wandb/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

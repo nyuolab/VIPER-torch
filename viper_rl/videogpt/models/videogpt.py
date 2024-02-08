@@ -37,12 +37,12 @@ class VideoGPT(nn.Module):
         self.ema_decay = config.ema
 
         # Create mask (torch.tril can be used for triangular mask)
-        L = np.prod(self.shape) # 1024
-        if self.config.ddp or self.config.dp:
-            self.mask = torch.tril(torch.ones((L*self.config.num_device, L), dtype=torch.bool))
-        else:
-            self.mask = torch.tril(torch.ones((L, L), dtype=torch.bool))
-        print("VideoGPT mask dimension is {}".format(self.mask.shape))
+        # L = np.prod(self.shape) # 1024
+        # if self.config.ddp or self.config.dp:
+        #     self.mask = torch.tril(torch.ones((L*self.config.num_device, L), dtype=torch.bool))
+        # else:
+        #     self.mask = torch.tril(torch.ones((L, L), dtype=torch.bool))
+        # print("VideoGPT mask dimension is {}".format(self.mask.shape))
 
         self.model.apply(weight_init)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=config.lr)
@@ -71,21 +71,21 @@ class VideoGPT(nn.Module):
                 self.ema_params[name] = self.ema_decay * self.ema_params[name] + (1.0 - self.ema_decay) * param
 
 
-    def forward(self, embeddings, label=None, decode_step=None, training=False):
+    def forward(self, embeddings, label=None, decode_step=None, decode_idx=None, training=False):
         if self.config.class_cond:
             assert label is not None, "label is required for class conditioned model"
 
         if self.config.class_cond:
             label = F.one_hot(label.long(), num_classes=self.config.n_classes).float()
 
-        return self.model(embeddings, mask=self.mask, label=label, decode_step=decode_step, training=training)
+        return self.model(embeddings, label=label, decode_step=decode_step, decode_idx=decode_idx, training=training)
 
     @property
     def metrics(self):
         return ['loss']
 
     def log_prob(self, embeddings, encodings, label=None, training=False, reduce_sum=True):
-        logits = self.forward(embeddings, label=label, training=training)
+        logits = self(embeddings, label=label, training=training)
         # print(logits.shape)        # print(logits.shape) # [64, 16, 8, 8, 256]
         # print(labels.shape) # [64, 16, 8, 8, 256]
         # nll = F.cross_entropy(logits.view(-1, logits.size(-1)), labels.view(-1, labels.size(-1)), reduction='none')

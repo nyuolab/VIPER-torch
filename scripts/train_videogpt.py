@@ -161,7 +161,7 @@ def train_videogpt(rank, config, gpt, train_dataset, test_dataset):
         gpt.model.position_bias_to_device()
     
     gpt.optimizer = torch.optim.AdamW(gpt.model.parameters(), lr=config.lr)
-    gpt.mask.to(device)
+    # gpt.mask.to(device)
     gpt.init_ema_params()
 
 

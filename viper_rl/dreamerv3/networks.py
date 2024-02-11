@@ -7,6 +7,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch import distributions as torchd
 from torch.nn.parallel import DistributedDataParallel as DDP
+from transformers import CLIPProcessor, CLIPModel
 
 import viper_rl.dreamerv3.tools as tools
 
@@ -495,6 +496,42 @@ class MultiEncoder(nn.Module):
         outputs = torch.cat(outputs, -1)
         return outputs
 
+class CLIPEncoder(nn.Module):
+    def __init__(
+        self,
+        image_shape
+        layers=2,
+        units=512,
+        act='SiLU',
+        norm=True,
+        symlog_inputs=symlog_inputs,
+    ):
+    super(CLIPEncoder, self).__init__()
+    self.clip = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
+    self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    self._mlp = MLP(
+                self.model.config.projection_dim,
+                None,
+                layers=layers,
+                units=units,
+                act=act,
+                norm=norm,
+                symlog_inputs=symlog_inputs,
+                name="CLIP_out",
+            )
+
+    def forward(self, x):
+        # Get the image embeddings
+        if len(x.shape) > 4:
+            pre_shape = x.shape[:-3]
+            x = x.view(-1, *x.shape[-3:])
+        with torch.no_grad():
+            x = self.processor(images=x, return_tensors="pt", do_rescale=False).to(device)
+            x = self.model.get_image_features(**x)
+        x = self._mlp(x)
+        if len(x.shape) > 4:
+            x = x.view(pre_shape, -1)
+        return x # [batch_size, time, self.clip.config.projection_dim]
 
 class MultiDecoder(nn.Module):
     def __init__(
@@ -628,7 +665,7 @@ class ConvEncoder(nn.Module):
         self.layers.apply(tools.weight_init)
 
     def forward(self, obs):
-        obs -= 0.5
+        # obs -= 0.5
         # (batch, time, h, w, ch) -> (batch * time, h, w, ch)
         # print(obs.shape)
         x = obs.reshape((-1,) + tuple(obs.shape[-3:]))
@@ -738,9 +775,10 @@ class ConvDecoder(nn.Module):
         mean = mean.permute(*permuted_dims)
         # mean = mean.permute(0, 2, 3, 1)
         if self._cnn_sigmoid:
-            mean = F.sigmoid(mean)
-        else:
-            mean += 0.5
+            mean = F.sigmoid(mean) - 0.5
+        #     mean = F.sigmoid(mean)
+        # else:
+        #     mean += 0.5
         return mean
 
 

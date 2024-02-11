@@ -13,8 +13,8 @@ if __name__ == "__main__":
     # env = 'minecraft_diamond'
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", dest='env', type=str, default="dmc_walker_walk")
-    parser.add_argument("--mode", dest='mode', type=str,  default="train")
+    parser.add_argument("--env", dest='env', type=str, default="dmc_cheetah_run")
+    parser.add_argument("--mode", dest='mode', type=str,  default="eval")
     args = parser.parse_args()
     
     env = args.env

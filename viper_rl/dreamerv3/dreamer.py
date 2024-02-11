@@ -177,7 +177,7 @@ class Dreamer(nn.Module):
         #     )
 
         # e-greedy
-        if expl_amount > 0:
+        if self._config.expl_amount > 0:
             action = self._exploration(action, training)
         # if isinstance(action, list):
         #     action = torch.cat(action, dim=-1)
@@ -217,7 +217,7 @@ class Dreamer(nn.Module):
             reward = lambda f, s, a: self._wm.heads["density"](
                 self._wm.dynamics.get_feat(s)
             ).mode()
-        else:    
+        else:
             reward = lambda f, s, a: self._wm.heads["reward"](
                 self._wm.dynamics.get_feat(s)
             ).mode()

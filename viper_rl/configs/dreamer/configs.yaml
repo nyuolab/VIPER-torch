@@ -5,7 +5,7 @@ defaults:
   evaldir: null
   offline_traindir: ''
   offline_evaldir: ''
-  seed: 0
+  seed: 1
   deterministic_run: False
   steps: 1e8
   parallel: False
@@ -53,6 +53,8 @@ defaults:
   norm: True
   encoder:
     {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 2, mlp_units: 512, symlog_inputs: True}
+  clip:
+    {layers: 2, units: 512, dist: 'normal', act: 'SiLU', norm: True, symlog_inputs: True, name: "clip_out"}
   decoder:
     {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 2, mlp_units: 512, cnn_sigmoid: False, image_dist: mse, vector_dist: symlog_mse, outscale: 1.0}
   actor:
@@ -111,6 +113,7 @@ defaults:
   actor_temp: 0.1
   expl_amount: 0.0
   expl_decay_rate: 0.999
+  eval_noise: 0.0
   expl_min: 0.01
   eval_state_mean: False
   value_decay: 0.0
@@ -148,12 +151,13 @@ defaults:
   amp_window: 5
 
 videogpt_prior_rb:
-  # task_behavior: prior
-  # expl_behavior: plan2explore
-  # grad_heads: ['decoder', 'density', 'cont']
-  # prior_rewards: {extr: 0.0, density: 1.0, disag: 1.0}
-  # wrapper.density: True
-  # replay: uniform_relabel
+  task_behavior: prior
+  expl_behavior: plan2explore
+  grad_heads: ['decoder', 'density', 'cont']
+  reward_model: 'dmc_clen16_fskip1'
+  prior_rewards: {extr: 0.0, density: 1.0, disag: 1.0}
+  wrapper.density: True
+  replay: uniform_relabel
 
   run:
     log_keys_max: '^log_.*'

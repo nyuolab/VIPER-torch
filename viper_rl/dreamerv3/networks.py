@@ -522,15 +522,16 @@ class CLIPEncoder(nn.Module):
 
     def forward(self, x):
         # Get the image embeddings
-        if len(x.shape) > 4:
+        old_dim = len(x.shape)
+        if old_dim > 4:
             pre_shape = x.shape[:-3]
             x = x.view(-1, *x.shape[-3:])
         with torch.no_grad():
             x = self.processor(images=x, return_tensors="pt", do_rescale=False).to(device)
             x = self.model.get_image_features(**x)
         x = self._mlp(x)
-        if len(x.shape) > 4:
-            x = x.view(pre_shape, -1)
+        if old_dim > 4:
+            x = x.view(*pre_shape, -1)
         return x # [batch_size, time, self.clip.config.projection_dim]
 
 class MultiDecoder(nn.Module):

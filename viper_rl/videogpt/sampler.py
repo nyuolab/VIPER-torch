@@ -31,7 +31,7 @@ class VideoGPTSampler:
         with torch.no_grad():
             batch = self.model.ae.prepare_batch(batch)
         encodings = batch.pop('encodings') # [batch_size, seq_len, height, width]
-        label = batch['label'].to(self.config.device)
+        label = batch['label'].to(self.model.device)
         # print(label.dtype)
 
         # print("embeddings shape is {}".format(batch["embeddings"].shape))
@@ -41,7 +41,7 @@ class VideoGPTSampler:
         # torch.manual_seed(seed)
 
         # Setup for sampling
-        samples = torch.zeros_like(encodings).to(self.config.device) # [batch_size, seq_len, height, width]
+        samples = torch.zeros_like(encodings).to(self.model.device) # [batch_size, seq_len, height, width]
         latent_shape = samples.shape[-3:] # [seq_len, height, width]
         
         # idxs = list(itertools.product(*[range(s) for s in latent_shape])) #(i,j,k) tuples

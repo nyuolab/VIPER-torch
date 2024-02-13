@@ -246,6 +246,8 @@ class VideoGPTRewardModel:
         encodings = self.ae.encode(torch.unsqueeze(image_batch, 0))
         embeddings = self.ae.lookup(encodings, permute=False)
         encodings, embeddings = encodings[0], embeddings[0]
+        # print(encodings.shape)
+        # print(embeddings.shape)
 
         # Compute batch of encodings and embeddings for likelihood computation.
         idxs = list(range(T - self.seq_len + 1))

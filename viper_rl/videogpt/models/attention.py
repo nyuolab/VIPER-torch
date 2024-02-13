@@ -453,7 +453,8 @@ class BroadcastPositionBiases(nn.Module):
     def forward(self, x, decode_step=None, decode_idx=None):
         out = []
         for i, e in enumerate(self.embs):
-            e = e.view((1,) + (1,) * i + (self.shape[i],) + (1,) * (self.n_dim - i - 1) + (-1,))
+            # e = e.view((1,) + (1,) * i + (self.shape[i],) + (1,) * (self.n_dim - i - 1) + (-1,))
+            e = e.view(1, *((1,) * i), self.shape[i], *((1,) * (self.n_dim - i - 1)), -1)
             e = e.expand((1, *self.shape, e.shape[-1]))
             out.append(e)
 

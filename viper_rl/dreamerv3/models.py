@@ -39,6 +39,7 @@ class WorldModel(nn.Module):
         #     shapes.pop("image")
         #     shapes["video"] = (config.video_embed_dim,)
         # q(z|h,x)
+        # self.encoder = networks.CLIPEncoder(self._config.device, **config.clip)
         self.encoder = networks.MultiEncoder(shapes, config.device, **config.encoder)
         self.embed_size = self.encoder.outdim
         self.dynamics = networks.RSSM( # p(z|h)

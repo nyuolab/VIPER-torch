@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import re
 import time
+import copy
 import argparse
 import yaml
 import pickle
@@ -65,8 +66,8 @@ def main(config):
     new_generator = torch.Generator()
     new_generator.manual_seed(config.seed)  # Optionally, seed the new generator
 
-    config.ckpt = config.output_dir if osp.exists(config.output_dir) else None
-    # config.ckpt = None
+    # config.ckpt = config.output_dir if osp.exists(config.output_dir) else None
+    config.ckpt = None
 
     ckpt_dir = osp.join(config.output_dir, 'checkpoints')
 
@@ -113,10 +114,15 @@ def main(config):
     #     # mp.spawn(train_videogpt, args=(config, gpt, train_dataset, test_dataset), nprocs=world_size, join=True)
     # else:
     if config.ddp or config.dp:
+        eval_device = "cuda:0"
         gpt_eval = copy.deepcopy(gpt)
-        gpt_eval.ae.ae.to("cuda:0")
-        gpt_eval.model.to("cuda:0")
-        gpt_eval.model.position_bias_to_device(device="cuda:0")
+        gpt_eval.device = eval_device
+        gpt_eval.model.device = eval_device
+        gpt_eval.ae.device = eval_device
+    
+        gpt_eval.ae.ae.to(eval_device)
+        gpt_eval.model.to(eval_device)
+        gpt_eval.model.position_bias_to_device(device=eval_device)
 
     if gpt_eval is None:
         sampler = VideoGPTSampler(gpt)
@@ -332,7 +338,7 @@ def validate(iteration, gpt, test_loader, device):
 
 def copy_gpt_weight(dp_gpt, target_gpt):
     target_gpt.ae.ae.load_state_dict(dp_gpt.ae.ae.module.state_dict())
-    target_gpt.load_state_dict(dp_gpt.module.state_dict())
+    target_gpt.model.load_state_dict(dp_gpt.model.module.state_dict())
 
 def visualize(sampler, iteration, gpt, test_loader):
     batch = next(iter(test_loader))

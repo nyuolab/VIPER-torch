@@ -1,11 +1,10 @@
 defaults:
-
   logdir: null
   traindir: null
   evaldir: null
   offline_traindir: ''
   offline_evaldir: ''
-  seed: 1
+  seed: 3
   deterministic_run: False
   steps: 1e8
   parallel: False
@@ -54,7 +53,7 @@ defaults:
   encoder:
     {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 2, mlp_units: 512, symlog_inputs: True}
   clip:
-    {layers: 2, units: 512, dist: 'normal', act: 'SiLU', norm: True, symlog_inputs: True, name: "clip_out"}
+    {layers: 2, units: 512, dist: 'normal', act: 'SiLU', norm: True, symlog_inputs: True}
   decoder:
     {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 2, mlp_units: 512, cnn_sigmoid: False, image_dist: mse, vector_dist: symlog_mse, outscale: 1.0}
   actor:
@@ -139,7 +138,7 @@ defaults:
 
   # Prior
   prior_rewards: {extr: 1.0, density: 1.0, disag: 0.0}
-  reward_model: 'none' # 'dmc_clen16_fskip1'
+  reward_model: 'dmc_clen16_fskip1'
   reward_model_batch_size: 64
   reward_model_compute_joint: True
 

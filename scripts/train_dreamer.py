@@ -175,7 +175,7 @@ def main(config):
     # transformer_config.device = device
     # config.ae["device"] = device
 
-    if config.reward_model != 'none':
+    if config.task_behavior == 'prior' and config.reward_model != 'none':
         print(f'Loading reward model {config.reward_model}')
         from viper_rl.videogpt.reward_models import LOAD_REWARD_MODEL_DICT
         reward_model = LOAD_REWARD_MODEL_DICT[config.reward_model](

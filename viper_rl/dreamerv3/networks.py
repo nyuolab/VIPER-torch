@@ -499,36 +499,48 @@ class MultiEncoder(nn.Module):
 class CLIPEncoder(nn.Module):
     def __init__(
         self,
-        image_shape
+        # image_shape,
+        device,
         layers=2,
         units=512,
         act='SiLU',
         norm=True,
-        symlog_inputs=symlog_inputs,
+        dist='normal',
+        symlog_inputs=True,
     ):
-    super(CLIPEncoder, self).__init__()
-    self.clip = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
-    self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-    self._mlp = MLP(
-                self.model.config.projection_dim,
-                None,
-                layers=layers,
-                units=units,
-                act=act,
-                norm=norm,
-                symlog_inputs=symlog_inputs,
-                name="CLIP_out",
-            )
+        super(CLIPEncoder, self).__init__()
+        self.device = device
+        self.clip = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
+        for param in self.clip.parameters():
+            param.requires_grad = False
+        # Verify
+        for name, param in self.clip.named_parameters():
+            assert not param.requires_grad, f"Parameter {name} is not frozen."
 
-    def forward(self, x):
+        self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+        self._mlp = MLP(
+                    self.clip.config.projection_dim,
+                    None,
+                    layers=layers,
+                    units=units,
+                    act=act,
+                    norm=norm,
+                    dist='normal',
+                    symlog_inputs=symlog_inputs,
+                    name="CLIP_out",
+                )
+        self.outdim = units
+
+    def forward(self, obs):
         # Get the image embeddings
+        x = obs['image']
         old_dim = len(x.shape)
         if old_dim > 4:
             pre_shape = x.shape[:-3]
             x = x.view(-1, *x.shape[-3:])
-        with torch.no_grad():
-            x = self.processor(images=x, return_tensors="pt", do_rescale=False).to(device)
-            x = self.model.get_image_features(**x)
+        # with torch.no_grad():
+        x = self.processor(images=x, return_tensors="pt", do_rescale=False).to(self.device)
+        x = self.clip.get_image_features(**x)
         x = self._mlp(x)
         if old_dim > 4:
             x = x.view(*pre_shape, -1)

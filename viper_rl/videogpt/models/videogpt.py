@@ -15,6 +15,7 @@ directory = directory.parent
 sys.path.append(str(directory.parent))
 
 from viper_rl.videogpt import weight_init
+from viper_rl.videogpt.train_utils import shift_dim
 
 
 class VideoGPT(nn.Module):
@@ -86,26 +87,33 @@ class VideoGPT(nn.Module):
 
     def log_prob(self, embeddings, encodings, label=None, training=False, reduce_sum=True):
         logits = self(embeddings, label=label, training=training)
+        # print(logits.shape)
+        # print(encodings.shape) # [64, 16, 8, 8]
         # print(logits.shape)        # print(logits.shape) # [64, 16, 8, 8, 256]
         # print(labels.shape) # [64, 16, 8, 8, 256]
         # nll = F.cross_entropy(logits.view(-1, logits.size(-1)), labels.view(-1, labels.size(-1)), reduction='none')
         # flatten_dim = np.prod(logits.shape[:-1])
-        labels = F.one_hot(encodings.long(), num_classes=self.ae.n_embed).float()  # Assuming 'encodings' are in a suitable format
+        # labels = F.one_hot(encodings.long(), num_classes=self.ae.n_embed).float()  # Assuming 'encodings' are in a suitable format
 
-        labels = torch.argmax(labels, dim=-1)
+        # labels = torch.argmax(labels, dim=-1)
         # nll = F.cross_entropy(logits, labels)
         # print(logits.view(flatten_dim, -1).shape)
         # print(labels.view(flatten_dim, -1).shape)
-        nll = F.cross_entropy(logits.view(-1, logits.size(-1)), labels.view(-1), reduction='none').view(logits.shape[:-1])
+        # logits: [b, t, h, w, c] -> [b, c, t, h, w]
+        nll = F.cross_entropy(shift_dim(logits, -1, 1), encodings, reduction='none').view(logits.shape[:-1])
         # print(nll.shape)
-        if self.config.class_cond:
-            nll = nll.view(*nll.shape[:2], -1)
-            nll = (nll.max(-1)[0] * np.prod(encodings.shape[2:]) + nll.sum(-1)) / (2 * np.prod(encodings.shape[2:]))
-        else:
-            if reduce_sum:
-                nll = nll.view(*nll.shape[:2], -1).sum(dim=-1)
+        # if self.config.class_cond:
+        #     nll = nll.view(*nll.shape[:2], -1)
+        #     nll = (nll.max(-1)[0] * np.prod(encodings.shape[2:]) + nll.sum(-1)) / (2 * np.prod(encodings.shape[2:]))
+        # else:
+        #     if reduce_sum:
+        #         nll = nll.view(*nll.shape[:2], -1).sum(dim=-1)
+        if reduce_sum:
+            nll = nll.view(*nll.shape[:2], -1).sum(-1)
         # print(nll.shape)
+        # ll = F.cross_entropy(logits, encodings)
         return -nll # .mean()  # Taking mean if required, based on how loss is calculated
+
 
     def loss(self, batch, training=True):
         embeddings = batch["embeddings"]

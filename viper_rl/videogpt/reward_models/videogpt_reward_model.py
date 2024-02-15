@@ -261,6 +261,7 @@ class VideoGPTRewardModel:
             mb_encodings = batch_encodings[i: i+self.minibatch_size]
             mb_embeddings = batch_embeddings[i: i+self.minibatch_size]
             mb_label = self.expand_scalar(label, mb_encodings.shape[0], torch.int64)
+            # print(mb_label)
             reward = self._compute_likelihood(mb_embeddings, mb_encodings, mb_label) # .detach().cpu().numpy()
             rewards.append(reward)
             # print(reward.shape)

@@ -9,7 +9,7 @@ from torch import distributions as torchd
 from torch.nn.parallel import DistributedDataParallel as DDP
 from transformers import CLIPProcessor, CLIPModel
 
-import viper_rl.dreamerv3.tools as tools
+import viper_rl.dreamer.tools as tools
 
 # World Model: Recurrent State-Space Model (RSSM)
 class RSSM(nn.Module):

@@ -1,13 +1,141 @@
-import copy
+import embodied
+import numpy as np
+
+# tree_map = jax.tree_util.tree_map
+# sg = lambda x: tree_map(jax.lax.stop_gradient, x)
+
+
+import logging
+
+logger = logging.getLogger()
+
+
+class CheckTypesFilter(logging.Filter):
+    def filter(self, record):
+        return "check_types" not in record.getMessage()
+
+
+logger.addFilter(CheckTypesFilter())
+
+import expl
+import tools
+import nets
+
 import torch
 from torch import nn
 
-import viper_rl.dreamerv3.networks as networks
-import viper_rl.dreamerv3.tools as tools
 
-# from ding.reward_model.rnd_reward_model import RndRewardModel
 
-to_np = lambda x: x.detach().cpu().numpy()
+class Agent(nn.Module):
+    def __init__(self, obs_space, act_space, step, config):
+        self.config = config
+        self.obs_space = obs_space
+        self.act_space = act_space["action"]
+        self.step = step
+        self.wm = models.WorldModel(obs_space, act_space, config)
+        
+        self.task_behavior = getattr(behaviors, config.task_behavior)(
+            self.wm, self.act_space, self.config, name="task_behavior"
+        )
+
+        if config.expl_behavior == "None":
+            self.expl_behavior = self.task_behavior
+        else:
+            self.expl_behavior = getattr(behaviors, config.expl_behavior)(
+                self.wm, self.act_space, self.config, name="expl_behavior"
+            )
+
+    def policy_initial(self, batch_size):
+        return (
+            self.wm.initial(batch_size),
+            self.task_behavior.initial(batch_size),
+            self.expl_behavior.initial(batch_size),
+        )
+
+    def train_initial(self, batch_size):
+        return self.wm.initial(batch_size)
+
+    def policy(self, obs, state, mode="train"):
+        print("Tracing policy function.")
+        obs = self.preprocess(obs)
+        (prev_latent, prev_action), task_state, expl_state = state
+        embed = self.wm.encoder(obs)
+        latent, _ = self.wm.rssm.obs_step(
+            prev_latent, prev_action, embed, obs["is_first"]
+        )
+        self.expl_behavior.policy(latent, expl_state)
+        task_outs, task_state = self.task_behavior.policy(latent, task_state)
+        expl_outs, expl_state = self.expl_behavior.policy(latent, expl_state)
+        if mode == "eval":
+            outs = task_outs
+            outs["action"] = outs["action"].mode()
+            outs["log_entropy"] = jnp.zeros(outs["action"].shape[:1])
+        elif mode == "explore":
+            outs = expl_outs
+            outs["log_entropy"] = outs["action"].entropy()
+            outs["action"] = outs["action"].sample()
+        elif mode == "train":
+            outs = task_outs
+            outs["log_entropy"] = outs["action"].entropy()
+            outs["action"] = outs["action"].sample(seed=nj.rng())
+        state = ((latent, outs["action"]), task_state, expl_state)
+        return outs, state
+
+    def train(self, data, state, reference_data=None):
+        metrics = {}
+        data = self.preprocess(data)
+        if reference_data is not None:
+            reference_data = self.preprocess(reference_data)
+        state, wm_outs, mets = self.wm.train(data, state, reference_data)
+        metrics.update(mets)
+        context = {**data, **wm_outs["post"]}
+        start = tree_map(lambda x: x.reshape([-1] + list(x.shape[2:])), context)
+        _, mets = self.task_behavior.train(self.wm.imagine, start, context)
+        metrics.update(mets)
+        if self.config.expl_behavior != "None":
+            _, mets = self.expl_behavior.train(self.wm.imagine, start, context)
+            metrics.update({"expl_" + key: value for key, value in mets.items()})
+        outs = {}
+        return outs, state, metrics
+
+    def report(self, data, reference_data=None):
+        data = self.preprocess(data)
+        if reference_data is not None:
+            reference_data = self.preprocess(reference_data)
+        report = {}
+        report.update(self.wm.report(data, reference_data))
+        mets = self.task_behavior.report(data)
+        report.update({f"task_{k}": v for k, v in mets.items()})
+        if self.expl_behavior is not self.task_behavior:
+            mets = self.expl_behavior.report(data)
+            report.update({f"expl_{k}": v for k, v in mets.items()})
+        return report
+   
+    def preprocess(self, obs):
+        obs = obs.copy()
+        for key, value in obs.items():
+            if key.startswith("log_") or key in ("key",):
+                continue
+            elif key.startswith("codes_") or key.startswith("embed_"):
+                continue
+            elif key == "discount":
+                obs["discount"] *= self.config.discount
+                # (batch_size, batch_length) -> (batch_size, batch_length, 1)
+                obs["discount"] = torch.Tensor(obs["discount"]).unsqueeze(-1)
+            elif key == "image":
+                value = torch.Tensor(value) / 255.0
+            else:
+                value = torch.Tensor(value)
+            obs[key] = value
+        # 'is_first' is necesarry to initialize hidden state at training
+        assert "is_first" in obs
+        # 'is_terminal' is necesarry to train cont_head
+        assert "is_terminal" in obs
+        obs["cont"] = torch.Tensor(1.0 - obs["is_terminal"]).unsqueeze(-1)
+        obs = {k: torch.Tensor(v).to(self.config.device) for k, v in obs.items()}
+        return obs
+    
+
 
 # exponentially weighted avg
 class RewardEMA(object):
@@ -29,9 +157,9 @@ class RewardEMA(object):
 
 
 class WorldModel(nn.Module):
-    def __init__(self, obs_space, act_space, step, config):
+    def __init__(self, obs_space, act_space, config):
         super(WorldModel, self).__init__()
-        self._step = step
+
         self._use_amp = True if config.precision == 16 else False
         self._config = config
         shapes = {k: tuple(v.shape) for k, v in obs_space.spaces.items()}
@@ -39,12 +167,10 @@ class WorldModel(nn.Module):
         #     shapes.pop("image")
         #     shapes["video"] = (config.video_embed_dim,)
         # q(z|h,x)
-        if self._config.use_clip:
-            self.encoder = networks.CLIPEncoder(self._config.device, **config.clip)
-        else:
-            self.encoder = networks.MultiEncoder(shapes, config.device, **config.encoder)
+        # self.encoder = networks.CLIPEncoder(self._config.device, **config.clip)
+        self.encoder = networks.MultiEncoder(shapes, config.device, **config.encoder)
         self.embed_size = self.encoder.outdim
-        self.dynamics = networks.RSSM( # p(z|h)
+        self.rssm = networks.RSSM( # p(z|h)
             config.dyn_stoch,
             config.dyn_deter,
             config.dyn_hidden,
@@ -79,9 +205,10 @@ class WorldModel(nn.Module):
                 **config.density_head,
                 device=config.device,
             )
-        else:
-            # reward predictor p(r|h,z)
-            self.heads["reward"] = networks.MLP(
+
+        # reward predictor p(r|h,z)
+        
+        self.heads["reward"] = networks.MLP(
             feat_size,  # pytorch version
             (255,) if config.reward_head["dist"] == "symlog_disc" else (),
             **config.reward_head,
@@ -96,23 +223,9 @@ class WorldModel(nn.Module):
             device=config.device,
         )
 
-        # self.amp = (config.task_behavior == "MotionPrior") or (
-        #     config.expl_behavior == "MotionPrior"
-        # )
-        # if self.amp:
-        #     self.discriminator = networks.Discriminator(
-        #         shapes, **config.discriminator, name="discriminator"
-        #     )
-        #     self.heads["discriminator_reward"] = networks.MLP(
-        #         feat_size, 
-        #         [], 
-        #         **config.discriminator_head, 
-        #         name="discriminator_head"
-        #     )
-
         for name in config.grad_heads:
             assert name in self.heads, name
-        self._model_opt = tools.Optimizer(
+        self.opt = tools.Optimizer(
             "model",
             self.parameters(),
             config.model_lr,
@@ -127,121 +240,108 @@ class WorldModel(nn.Module):
             cont=config.cont_head["loss_scale"],
             density=config.density_head["loss_scale"],
         )
+    
+    def initial(self, batch_size):
+        prev_latent = self.rssm.initial(batch_size)
+        prev_action = torch.zeros((batch_size, *self.act_space.shape))
+        return prev_latent, prev_action
+
+    def loss(self, data, state=None, reference_data=None):
+        embed = self.encoder(data)
+        post, prior = self.rssm.observe(
+            embed, data["action"], data["is_first"]
+        )
+        kl_loss, kl_value, dyn_loss, rep_loss = self.rssm.kl_loss(
+            post, prior, self.config.kl_free, self.config.dyn_scale, self.config.rep_scale
+        )
+        preds = {}
+        for name, head in self.heads.items():
+            if name == "discriminator_reward":
+                continue
+            grad_head = name in self._config.grad_heads
+            feat = self.rssm.get_feat(post)
+            feat = feat if grad_head else feat.detach()
+            pred = head(feat)
+            if type(pred) is dict:
+                preds.update(pred)
+            else:
+                preds[name] = pred
         
+        losses = {}
+        for name, pred in preds.items():
+            loss = -pred.log_prob(data[name])
+            assert loss.shape == embed.shape[:2], (name, loss.shape)
+            losses[name] = loss
+        
+        scaled = {
+            key: value * self._scales.get(key, 1.0)
+            for key, value in losses.items()
+        }
+        model_loss = sum(scaled.values()) + kl_loss
 
-        #RND network for latent state exploration
-        # if self._config.curiosity == 'rnd':
-        #     self.rnd_cfg = dict(
-        #                         obs_shape=config.dyn_hidden+config.dyn_deter,
-        #                         # (str) Reward model register name, refer to registry ``REWARD_MODEL_REGISTRY``.
-        #                         type='rnd',
-        #                         # (str) The intrinsic reward type, including add, new, or assign.
-        #                         intrinsic_reward_type='add',
-        #                         # (float) The step size of gradient descent.
-        #                         learning_rate=1e-3,
-        #                         # (float) Batch size.
-        #                         batch_size=64,
-        #                         # (list(int)) Sequence of ``hidden_size`` of reward network.
-        #                         # If obs.shape == 1,  use MLP layers.
-        #                         # If obs.shape == 3,  use conv layer and final dense layer.
-        #                         hidden_size_list=[64, 64, 128],
-        #                         # (int) How many updates(iterations) to train after collector's one collection.
-        #                         # Bigger "update_per_collect" means bigger off-policy.
-        #                         # collect data -> update policy-> collect data -> ...
-        #                         update_per_collect=1,
-        #                         # (bool) Observation normalization: transform obs to mean 0, std 1.
-        #                         obs_norm=True,
-        #                         # (int) Min clip value for observation normalization.
-        #                         obs_norm_clamp_min=-1,
-        #                         # (int) Max clip value for observation normalization.
-        #                         obs_norm_clamp_max=1,
-        #                         # Means the relative weight of RND intrinsic_reward.
-        #                         # (float) The weight of intrinsic reward
-        #                         # r = intrinsic_reward_weight * r_i + r_e.
-        #                         intrinsic_reward_weight=0.01,
-        #                         # (bool) Whether to normlize extrinsic reward.
-        #                         # Normalize the reward to [0, extrinsic_reward_norm_max].
-        #                         extrinsic_reward_norm=True,
-        #                         # (int) The upper bound of the reward normalization.
-        #                         extrinsic_reward_norm_max=1,
-        #                     )
-        #     self.rnd_model = RndRewardModel(self.rnd_cfg, self._config.device)
-        #     self.rnd_model.reward_model.apply(tools.weight_init)
+        return model_loss, losses, kl_value, embed, prior, post
 
-    def _train(self, data, reference_data=None):
+
+    def train(self, data, reference_data=None):
         # action (batch_size, batch_length, act_dim)
         # image (batch_size, batch_length, h, w, ch)
         # reward (batch_size, batch_length)
         # discount (batch_size, batch_length)
-        data = self.preprocess(data)
         # print(data.keys())
 
         with tools.RequiresGrad(self):
             with torch.cuda.amp.autocast(self._use_amp):
-                embed = self.encoder(data)
-                post, prior = self.dynamics.observe(
-                    embed, data["action"], data["is_first"]
-                )
-                kl_free = self._config.kl_free
-                dyn_scale = self._config.dyn_scale
-                rep_scale = self._config.rep_scale
-                kl_loss, kl_value, dyn_loss, rep_loss = self.dynamics.kl_loss(
-                    post, prior, kl_free, dyn_scale, rep_scale
-                )
-                preds = {}
-                for name, head in self.heads.items():
-                    if name == "discriminator_reward":
-                        continue
-                    grad_head = name in self._config.grad_heads
-                    feat = self.dynamics.get_feat(post)
-                    feat = feat if grad_head else feat.detach()
-                    pred = head(feat)
-                    if type(pred) is dict:
-                        preds.update(pred)
-                    else:
-                        preds[name] = pred
-                
-                losses = {}
-                for name, pred in preds.items():
-                    loss = -pred.log_prob(data[name])
-                    assert loss.shape == embed.shape[:2], (name, loss.shape)
-                    losses[name] = loss
-                scaled = {
-                    key: value * self._scales.get(key, 1.0)
-                    for key, value in losses.items()
-                }
-                model_loss = sum(scaled.values()) + kl_loss
+                model_loss, losses, kl_value, embed, prior, post = self.loss(data, reference_data=reference_data)
+
             metrics = self._model_opt(torch.mean(model_loss), self.parameters())
 
-            #         like = pred.log_prob(data[name])
-            #         # print("World model data loss for {}".format(name))
-            #         losses[name] = -torch.mean(like) * self._scales.get(name, 1.0)
-            #     model_loss = sum(losses.values()) + kl_loss
-            # metrics = self._model_opt(model_loss, self.parameters())
 
         metrics.update({f"{name}_loss": to_np(loss) for name, loss in losses.items()})
-        metrics["kl_free"] = kl_free
-        metrics["dyn_scale"] = dyn_scale
-        metrics["rep_scale"] = rep_scale
+        metrics["kl_free"] = self.config.kl_free
+        metrics["dyn_scale"] = self.config.dyn_scale
+        metrics["rep_scale"] = self.config.rep_scale
         metrics["dyn_loss"] = to_np(dyn_loss)
         metrics["rep_loss"] = to_np(rep_loss)
         metrics["kl"] = to_np(torch.mean(kl_value))
         
         with torch.cuda.amp.autocast(self._use_amp):
             metrics["prior_ent"] = to_np(
-                torch.mean(self.dynamics.get_dist(prior).entropy())
+                torch.mean(self.rssm.get_dist(prior).entropy())
             )
             metrics["post_ent"] = to_np(
-                torch.mean(self.dynamics.get_dist(post).entropy())
+                torch.mean(self.rssm.get_dist(post).entropy())
             )
             context = dict(
                 embed=embed,
-                feat=self.dynamics.get_feat(post),
+                feat=self.rssm.get_feat(post),
                 kl=kl_value,
-                postent=self.dynamics.get_dist(post).entropy(),
+                postent=self.rssm.get_dist(post).entropy(),
             )
         post = {k: v.detach() for k, v in post.items()}
         return post, context, metrics
+    
+    def imagine(self, start, actor, horizon):
+        flatten = lambda x: x.reshape([-1] + list(x.shape[2:]))
+        start = {k: flatten(v) for k, v in start.items()}
+
+        def step(prev, _):
+            state, _, _ = prev
+            feat = self.rssm.get_feat(state)
+            inp = feat.detach()
+            # actionhead takes in z+h and outputs action
+            action = actor(inp).sample()
+            if isinstance(action, list):
+                action = torch.cat(action, dim=-1)
+            # print(action.shape)f
+            succ = self.rssm.img_step(state, action)
+            return succ, feat, action
+
+        succ, feats, actions = tools.static_scan(
+            step, [torch.arange(horizon)], (start, None, None)
+        )
+        states = {k: torch.cat([start[k][None], v[:-1]], 0) for k, v in succ.items()}
+
+        return feats, states, actions
 
 
     def preprocess(self, obs, img_norm=True): # video=True):
@@ -278,17 +378,17 @@ class WorldModel(nn.Module):
         data = self.preprocess(data)
         embed = self.encoder(data)
 
-        states, _ = self.dynamics.observe(
+        states, _ = self.rssm.observe(
             embed[:6, :5], data["action"][:6, :5], data["is_first"][:6, :5]
         )
-        recon = self.heads["decoder"](self.dynamics.get_feat(states))["image"].mode()[
+        recon = self.heads["decoder"](self.rssm.get_feat(states))["image"].mode()[
             :6
         ]
-        # reward_post = self.heads["reward"](self.dynamics.get_feat(states)).mode()[:6]
+        reward_post = self.heads["reward"](self.rssm.get_feat(states)).mode()[:6]
         init = {k: v[:, -1] for k, v in states.items()}
-        prior = self.dynamics.imagine(data["action"][:6, 5:], init)
-        openl = self.heads["decoder"](self.dynamics.get_feat(prior))["image"].mode()
-        # reward_prior = self.heads["reward"](self.dynamics.get_feat(prior)).mode()
+        prior = self.rssm.imagine(data["action"][:6, 5:], init)
+        openl = self.heads["decoder"](self.rssm.get_feat(prior))["image"].mode()
+        reward_prior = self.heads["reward"](self.rssm.get_feat(prior)).mode()
         # observed image is given until 5 steps
         model = torch.cat([recon[:, :5], openl], 1)
         truth = data["image"][:6]
@@ -297,9 +397,9 @@ class WorldModel(nn.Module):
         return torch.cat([truth, model, error], 2)
 
 
-class ImagBehavior(nn.Module):
+class ImagActorCritic(nn.Module):
     def __init__(self, config, world_model):
-        super(ImagBehavior, self).__init__()
+        super(ImagActorCritic, self).__init__()
         self._use_amp = True if config.precision == 16 else False
         self._config = config
         self._world_model = world_model
@@ -308,7 +408,7 @@ class ImagBehavior(nn.Module):
             feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter
         else:
             feat_size = config.dyn_stoch + config.dyn_deter
-        self.actor = networks.MLP(
+        self.actor = nets.MLP(
             feat_size,
             (config.num_actions,),
             config.actor["layers"],
@@ -370,7 +470,7 @@ class ImagBehavior(nn.Module):
             self.register_buffer("ema_vals", torch.zeros((2,)).to(self._config.device))
             self.reward_ema = RewardEMA(device=self._config.device)
 
-    def _train(
+    def train(
         self,
         start,
         objective=None,
@@ -382,7 +482,7 @@ class ImagBehavior(nn.Module):
         with tools.RequiresGrad(self.actor):
             with torch.cuda.amp.autocast(self._use_amp):
                 # virtual rollout for H steps
-                imag_feat, imag_state, imag_action = self._imagine(
+                imag_feat, imag_state, imag_action = self.imagine(
                     start, self.actor, self._config.imag_horizon
                 )
                 # print(imag_action.shape)
@@ -414,7 +514,7 @@ class ImagBehavior(nn.Module):
                 
                 policy = self.actor(imag_feat)
                 actor_ent = policy.entropy()
-                state_ent = self._world_model.dynamics.get_dist(imag_state).entropy()
+                state_ent = self._world_model.rssm.get_dist(imag_state).entropy()
                 # this target is not scaled
                 # slow is flag to indicate whether slow_target is used for lambda-return
                 # gpu mem boost
@@ -425,14 +525,14 @@ class ImagBehavior(nn.Module):
                     imag_action = [imag_action]
 
 
-                target, weights, base = self._compute_target(
+                target, weights, base = self.compute_target(
                     # imag_feat, 
                     value,
                     imag_state, 
                     reward, 
                 )
     
-                actor_loss, mets = self._compute_actor_loss(
+                actor_loss, mets = self.compute_actor_loss(
                     imag_feat,
                     value,
                     policy, # last usage of policy torch
@@ -494,37 +594,13 @@ class ImagBehavior(nn.Module):
         return imag_feat, imag_state, imag_action, weights, metrics
 
 
-    def _imagine(self, start, actor, horizon):
-        dynamics = self._world_model.dynamics
-        flatten = lambda x: x.reshape([-1] + list(x.shape[2:]))
-        start = {k: flatten(v) for k, v in start.items()}
-
-        def step(prev, _):
-            state, _, _ = prev
-            feat = dynamics.get_feat(state)
-            inp = feat.detach()
-            # actionhead takes in z+h and outputs action
-            action = actor(inp).sample()
-            if isinstance(action, list):
-                action = torch.cat(action, dim=-1)
-            # print(action.shape)f
-            succ = dynamics.img_step(state, action)
-            return succ, feat, action
-
-        succ, feats, actions = tools.static_scan(
-            step, [torch.arange(horizon)], (start, None, None)
-        )
-        states = {k: torch.cat([start[k][None], v[:-1]], 0) for k, v in succ.items()}
-
-        return feats, states, actions
-
-    def _compute_target(
+    def compute_target(
         # self, imag_feat, imag_state, imag_action, reward, actor_ent, state_ent
         # gpu mem boost
         self, value, imag_state, reward
     ):
         if "cont" in self._world_model.heads:
-            inp = self._world_model.dynamics.get_feat(imag_state)
+            inp = self.world_model.rssm.get_feat(imag_state)
             discount = self._config.discount * self._world_model.heads["cont"](inp).mean
         else:
             discount = self._config.discount * torch.ones_like(reward)
@@ -546,7 +622,7 @@ class ImagBehavior(nn.Module):
 
         return target, weights, value[:-1]
 
-    def _compute_actor_loss(
+    def compute_actor_loss(
         self,
         imag_feat,
         # gpu mem boost

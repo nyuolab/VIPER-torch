@@ -23,10 +23,10 @@ if __name__ == "__main__":
     return_mode = "{}_return".format(mode)
     plot_txt = 'plots/viper_{0}_rewards.png'.format(env)
     
-    methods = ["vanilla", "viper"]
+    methods = ["explore", "clip-explore", "clip-egreedy"]
     # methods = ["vanilla", "0.05-greedy", "0.5-0.05 decay"]
     # methods = ["inf_life", "inf_life_curiosity"]
-    seeds = ["0","1"]
+    seeds = ["0", "2", "4"]
 
     rmin = 0
     rmax = 0

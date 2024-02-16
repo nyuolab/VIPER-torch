@@ -66,8 +66,8 @@ def main(config):
     new_generator = torch.Generator()
     new_generator.manual_seed(config.seed)  # Optionally, seed the new generator
 
-    # config.ckpt = config.output_dir if osp.exists(config.output_dir) else None
-    config.ckpt = None
+    config.ckpt = config.output_dir if osp.exists(config.output_dir) else None
+    # config.ckpt = None
 
     ckpt_dir = osp.join(config.output_dir, 'checkpoints')
 

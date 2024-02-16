@@ -701,6 +701,7 @@ def simulate(
                     if reward_model is not None:
                         logger.scalar(f"train_viper_return", video_score)
                         logger.scalar(f"train_viper_reward_std", video_score_std)
+                        # logger.scalar(f"train_viper_return*return", video_score/score)
                     logger.scalar(f"train_length", length)
                     logger.scalar(f"train_episodes", len(cache))
                     logger.write(step=logger.step)

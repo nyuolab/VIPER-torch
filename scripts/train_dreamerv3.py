@@ -25,8 +25,6 @@ from viper_rl.dreamerv3.parallel import Parallel, Damy
 import torch
 from torch import nn
 from torch import distributions as torchd
-
-import torch
 import torch.distributed as dist
 
 # dist.init_process_group(backend='nccl')
@@ -135,7 +133,6 @@ def main(config):
     config.time_limit //= config.action_repeat
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     config.device = device
 
     # if is_master_process:

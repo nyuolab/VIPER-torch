@@ -101,15 +101,14 @@ class VideoGPT(nn.Module):
         # print(labels.view(flatten_dim, -1).shape)
         # logits: [b, t, h, w, c] -> [b, c, t, h, w]
         nll = F.cross_entropy(shift_dim(logits, -1, 1), encodings, reduction='none').view(logits.shape[:-1])
+        ll_scale = np.prod(self.shape[1:])
         # print(nll.shape)
-        # if self.config.class_cond:
-        #     nll = nll.view(*nll.shape[:2], -1)
-        #     nll = (nll.max(-1)[0] * np.prod(encodings.shape[2:]) + nll.sum(-1)) / (2 * np.prod(encodings.shape[2:]))
-        # else:
-        #     if reduce_sum:
-        #         nll = nll.view(*nll.shape[:2], -1).sum(dim=-1)
-        if reduce_sum:
-            nll = nll.view(*nll.shape[:2], -1).sum(-1)
+        if self.config.class_cond:
+            nll = nll.view(*nll.shape[:2], -1)
+            nll = (nll.max(-1)[0] * ll_scale + nll.sum(-1)) / (2 * ll_scale)
+        else:
+            if reduce_sum:
+                nll = nll.view(*nll.shape[:2], -1).sum(dim=-1) / ll_scale
         # print(nll.shape)
         # ll = F.cross_entropy(logits, encodings)
         return -nll # .mean()  # Taking mean if required, based on how loss is calculated
@@ -126,5 +125,5 @@ class VideoGPT(nn.Module):
         # print("encodings shape is {}".format(label.shape))
         loss = -self.log_prob(
             embeddings, encodings, label, training=training
-        ).mean() / np.prod(self.shape[1:])
+        ).mean()
         return dict(loss=loss)

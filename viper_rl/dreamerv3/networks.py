@@ -450,11 +450,11 @@ class MultiEncoder(nn.Module):
             self._cnn = ConvEncoder(
                 input_shape, cnn_depth, act, norm, kernel_size, minres
             )
-            if torch.cuda.device_count() > 1:
-                self._cnn = DDP(self._cnn.to(device), device_ids=[device])
-                self.outdim += self._cnn.module.outdim
-            else:
-                self.outdim += self._cnn.outdim
+            # if torch.cuda.device_count() > 1:
+            #     self._cnn = DDP(self._cnn.to(device), device_ids=[device])
+            #     self.outdim += self._cnn.module.outdim
+            # else:
+            self.outdim += self._cnn.outdim
         
         if self.mlp_shapes:
             input_size = sum([sum(v) for v in self.mlp_shapes.values()])
@@ -595,8 +595,8 @@ class MultiDecoder(nn.Module):
                 outscale=outscale,
                 cnn_sigmoid=cnn_sigmoid,
             )
-            if torch.cuda.device_count() > 1:
-                self._cnn = DDP(self._cnn.to(device), device_ids=[device])
+            # if torch.cuda.device_count() > 1:
+            #     self._cnn = DDP(self._cnn.to(device), device_ids=[device])
 
         if self.mlp_shapes:
             self._mlp = MLP(

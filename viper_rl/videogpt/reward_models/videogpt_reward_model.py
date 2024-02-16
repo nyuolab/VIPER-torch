@@ -171,7 +171,8 @@ class VideoGPTRewardModel:
         # print(label)
         # Assuming the log_prob method is implemented in your PyTorch model
         likelihoods = self.gpt.log_prob(embeddings, encodings, label=label, reduce_sum=self.nll_reduce_sum)
-        
+        # [b, t]
+
         if self.compute_joint:
             ll = likelihoods.sum(dim=-1)
         else:
@@ -262,9 +263,10 @@ class VideoGPTRewardModel:
             mb_embeddings = batch_embeddings[i: i+self.minibatch_size]
             mb_label = self.expand_scalar(label, mb_encodings.shape[0], torch.int64)
             # print(mb_label)
+            # print(mb_embeddings.shape)
             reward = self._compute_likelihood(mb_embeddings, mb_encodings, mb_label) # .detach().cpu().numpy()
             rewards.append(reward)
-            # print(reward.shape)
+            # print(reward.shape) # (b,)
         # print(len(rewards))
         # progress
         rewards = torch.cat(rewards, dim=0).detach().cpu().numpy()

@@ -189,17 +189,21 @@ class VideoGPTRewardModel:
             print(f'\tAfter applying frame skip: Embeddings shape: {first_embeddings.shape}, Encodings shape: {first_encodings.shape}')
         else:
             first_encodings, first_embeddings = encodings[:1], embeddings[:1]
-        likelihoods = self.gpt.log_prob(first_embeddings, first_encodings, label=label, reduce_sum=self.nll_reduce_sum)
         
+        likelihoods = self.gpt.log_prob(first_embeddings, first_encodings, label=label, reduce_sum=self.nll_reduce_sum)
         
         if self.n_skip > 1:
             idxs = np.arange(len(likelihoods.shape))
-            idxs[0], idxs[1] = idxs[1], idxs[0]
+            idxs[0], idxs[1] = 1, 0
             ll = likelihoods.permute(idxs.tolist()).reshape((-1,) + likelihoods.shape[2:])[:-1]
         else:
             ll = likelihoods[0, :-1]
+        # print(ll)
+        # print(self.compute_joint)
+        n = len(ll)
         if self.compute_joint:
-            ll = torch.cumsum(ll, dim=0) / torch.arange(1, len(ll) + 1).to(self.device)
+            ll = torch.cumsum(ll, dim=0) / torch.arange(1, n + 1).to(self.device) * n
+        # print(ll)
         return ll
 
     
@@ -282,16 +286,18 @@ class VideoGPTRewardModel:
         if seq['is_first'][0]:
             first_encodings = batch_encodings[:1]
             first_embeddings = batch_embeddings[:1]
+            # print(first_encodings.shape) # [1, 16, 8, 8]
             first_label = self.expand_scalar(label, first_encodings.shape[0], torch.int32)
             first_rewards = self._compute_likelihood_for_initial_elements(
                 first_embeddings, first_encodings, first_label).detach().cpu().numpy()
+            # print(first_rewards.shape) # (15,)
             if len(first_rewards.shape) <= 1:
                 first_rewards = self._reward_scaler(first_rewards)
             assert len(first_rewards) == self.seq_len_steps - 1, f'{len(first_rewards)} != {self.seq_len_steps - 1}'
             for i, rew in enumerate(first_rewards):
                 # assert not self.is_step_processed(seq[i]), f'Step {i} already processed'
                 seq[VideoGPTRewardModel.PRIVATE_LIKELIHOOD_KEY][i] = rew
-
+        # print(seq[VideoGPTRewardModel.PRIVATE_LIKELIHOOD_KEY][:self.seq_len_steps])
         return seq
 
     def expand_scalar(self, scalar, size, dtype):

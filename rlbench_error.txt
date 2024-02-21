@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/gpfs/data/oermannlab/users/qp2040/VIPER-torch/test_rlbench.py", line 7, in <module>
+    from rlbench.environment import Environment
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/rlbench/__init__.py", line 4, in <module>
+    import pyrep
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/pyrep/__init__.py", line 5, in <module>
+    from .pyrep import PyRep
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/pyrep/pyrep.py", line 3, in <module>
+    from pyrep.backend import sim, utils
+  File "/gpfs/data/oermannlab/users/qp2040/.conda/envs/mdj/lib/python3.10/site-packages/pyrep/backend/sim.py", line 2, in <module>
+    from ._sim_cffi import ffi, lib
+ImportError: /lib64/libm.so.6: version `GLIBC_2.29' not found (required by /gpfs/data/oermannlab/users/qp2040/CoppeliaSim_Edu_V4_1_0_Ubuntu20_04/libcoppeliaSim.so.1)

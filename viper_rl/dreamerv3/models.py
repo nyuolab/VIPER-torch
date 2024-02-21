@@ -189,12 +189,15 @@ class WorldModel(nn.Module):
                     post, prior, kl_free, dyn_scale, rep_scale
                 )
                 preds = {}
+
+                feat = self.dynamics.get_feat(post)
+
                 for name, head in self.heads.items():
                     if name == "discriminator_reward":
                         continue
                     grad_head = name in self._config.grad_heads
-                    feat = self.dynamics.get_feat(post)
-                    feat = feat if grad_head else feat.detach()
+                    # feat = self.dynamics.get_feat(post)
+                    # feat = feat if grad_head else feat.detach()
                     pred = head(feat)
                     if type(pred) is dict:
                         preds.update(pred)
@@ -202,6 +205,9 @@ class WorldModel(nn.Module):
                         preds[name] = pred
                 
                 losses = {}
+
+                # print(data["density"].shape)
+
                 for name, pred in preds.items():
                     loss = -pred.log_prob(data[name])
                     assert loss.shape == embed.shape[:2], (name, loss.shape)

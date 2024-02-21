@@ -151,23 +151,18 @@ def save_image(img, outdir, filename):
     output_path = outdir / filename
     Image.fromarray(img.astype('uint8')).save(output_path)
 
-
-
 # compare real & imaginary trajectories
 def eval_rollout(
     agent,
     envs,
-    cache, # trajectories/transitions
-    directory,
-    logger,
+    logger=None,
     limit=None,
-    episodes=0,
-    steps=0,
     state=None,
-    real=True
+    imagine=False
 ):  
     # initialize or unpack simulation state
     print("Number of envs = {}".format(len(envs)))
+    assert len(envs) == 1
     # obs: dict_keys(['orientations', 'height', 'velocity', 'image', 'is_terminal', 'is_first', 'reward'])
     
     step, episode = 0, 0
@@ -182,28 +177,30 @@ def eval_rollout(
     results = [envs[i].reset() for i in indices]
     results = [r() for r in results]
 
-    save_image(results[0]['image'], logger._logdir, agent._config.task + "/real_imgs/0.jpg".format())
-    save_image(results[0]['image'], logger._logdir, agent._config.task + "/fake_imgs/0.jpg".format())
+    if logger:
+        save_image(results[0]['image'], logger._logdir, agent._config.task + "/real_imgs/0.jpg".format())
+        save_image(results[0]['image'], logger._logdir, agent._config.task + "/fake_imgs/0.jpg".format())
 
     initial_states = results.copy()
     
-    tb = agent._task_behavior
     # H = tb._config.imag_horizon
-    H = 500
+    H = 501
     # Real rollout
+    seq = {}
+    seq["image"] = []
+
     while True:
         if done[0]:
-
             for index, result in zip(indices, results):
                 t = result.copy()
                 t = {k: convert(v) for k, v in t.items()}
-                # action will be added to transition in add_to_cache
                 t["reward"] = 0.0
                 t["discount"] = 1.0
                 # initial state should be added to cache
-                add_to_cache(cache, envs[index].id, t)
                 # replace obs with done by initial state
                 obs[index] = result
+            
+            seq["image"].append(obs[0]["image"])
         
         # step agents
         obs = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
@@ -234,108 +231,105 @@ def eval_rollout(
         episode += int(done.sum())
         length += 1
 
+        seq["image"].append(obs[0]["image"])
+
         # print(obs[0]['image'].shape)
-        if step < H:
+        if step < H and logger:
             save_image(obs[0]['image'], logger._logdir, agent._config.task + "/real_imgs/{}.jpg".format(step+1)) 
 
 
-        step += len(envs)
-        length *= 1 - done
-        # add to cache
-        # print(obs[0].keys())
-        # print(obs[0]['image'].shape)
+        # step += len(envs)
+        # length *= 1 - done
 
-        for a, result, env in zip(action, results, envs):
-            o, r, d, info = result
-            o = {k: convert(v) for k, v in o.items()}
-            # PROGRESS
-            transition = o.copy()
-            if isinstance(a, dict):
-                transition.update(a)
-            else:
-                transition["action"] = a
-            transition["reward"] = r
-            transition["discount"] = info.get("discount", np.array(1 - float(d)))
-            add_to_cache(cache, env.id, transition)
-
+        # for a, result, env in zip(action, results, envs):
+        #     o, r, d, info = result
+        #     o = {k: convert(v) for k, v in o.items()}
+        #     # PROGRESS
+        #     transition = o.copy()
+        #     if isinstance(a, dict):
+        #         transition.update(a)
+        #     else:
+        #         transition["action"] = a
+        #     transition["reward"] = r
+        #     transition["discount"] = info.get("discount", np.array(1 - float(d)))
 
 
         if done[0]:
-            indices = [index for index, d in enumerate(done) if d]
-            # logging for done episode
-            for i in indices:
-                # save_episodes(directory, {envs[i].id: cache[envs[i].id]})
-                length = len(cache[envs[i].id]["reward"]) - 1
-                score = float(np.array(cache[envs[i].id]["reward"]).sum())
-                video = cache[envs[i].id]["image"]
+            # indices = [index for index, d in enumerate(done) if d]
+            # # logging for done episode
+            # for i in indices:
+            #     # length = len(cache[envs[i].id]["reward"]) - 1
+            #     score = float(np.array(cache[envs[i].id]["reward"]).sum())
+            #     video = cache[envs[i].id]["image"]
                 
-                if not "eval_lengths" in locals():
-                    eval_lengths = []
-                    eval_scores = []
-                    eval_done = False
-                # start counting scores for evaluation
-                eval_scores.append(score)
-                eval_lengths.append(length)
+            #     if not "eval_lengths" in locals():
+            #         eval_lengths = []
+            #         eval_scores = []
+            #         eval_done = False
+            #     # start counting scores for evaluation
+            #     eval_scores.append(score)
+            #     eval_lengths.append(length)
 
-                score = sum(eval_scores) / len(eval_scores)
-                length = sum(eval_lengths) / len(eval_lengths)
-                logger.video(f"eval_policy", np.array(video)[None])
+            #     score = sum(eval_scores) / len(eval_scores)
+            #     length = sum(eval_lengths) / len(eval_lengths)
+            #     # logger.video(f"eval_policy", np.array(video)[None])
 
-            
-            logger.scalar(f"eval_return", score)
-            logger.scalar(f"eval_length", length)
-            logger.scalar(f"eval_episodes", len(eval_scores))
-            logger.write(step=logger.step)
+            if logger:
+                logger.scalar(f"eval_return", score)
+                logger.scalar(f"eval_length", length)
+                logger.scalar(f"eval_episodes", len(eval_scores))
+                logger.write(step=logger.step)
 
             break
 
     # keep only last item for saving memory. this cache is used for video_pred later
-    while len(cache) > 1:
-        # FIFO
-        cache.popitem(last=False)
-    print("Total number of steps = {}".format(step))
-    
+    # while len(cache) > 1:
+    #     # FIFO
+    #     cache.popitem(last=False)    
     
     # Imaginary rollout
-    for index, result in zip([0], initial_states):
-        t = result.copy()
-        t = {k: convert(v) for k, v in t.items()}
-        # action will be added to transition in add_to_cache
-        t["reward"] = 0.0
-        t["discount"] = 1.0
-        # replace obs with done by initial state
-        obs[index] = result
-    # step agents
-    obs = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
+    if imagine:
+        tb = agent._task_behavior
+        for index, result in zip([0], initial_states):
+            t = result.copy()
+            t = {k: convert(v) for k, v in t.items()}
+            # action will be added to transition in add_to_cache
+            t["reward"] = 0.0
+            t["discount"] = 1.0
+            # replace obs with done by initial state
+            obs[index] = result
+        # step agents
+        obs = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
 
-    # Might be the reason for weird colors for fake imgs 
-    obs = agent._wm.preprocess(obs)
-    embed = agent._wm.encoder(obs) # The embedding might still need normalized input 
+        # Might be the reason for weird colors for fake imgs 
+        obs = agent._wm.preprocess(obs)
+        embed = agent._wm.encoder(obs) # The embedding might still need normalized input 
 
-    # print(obs)
-    print(embed)
+        # print(obs)
+        print(embed)
 
-    # pseudo action?
-    action = torch.zeros((len(envs), agent._config.num_actions)).to(agent._config.device)
+        # pseudo action?
+        action = torch.zeros((len(envs), agent._config.num_actions)).to(agent._config.device)
 
-    state = agent._wm.dynamics.initial(len(envs))
-    start, _ = agent._wm.dynamics.obs_step(state, action, embed, obs["is_first"])
-    
-    
-    start = {k: v.detach() for k, v in start.items()}
+        state = agent._wm.dynamics.initial(len(envs))
+        start, _ = agent._wm.dynamics.obs_step(state, action, embed, obs["is_first"])
+        
+        
+        start = {k: v.detach() for k, v in start.items()}
 
-    imag_feat, imag_state, imag_action = \
-        agent._task_behavior._imagine(start, tb.actor, H)
-    
-    print(imag_action)
-    # reward = tb._reward(imag_feat, imag_state, imag_action)
-    recon_imgs = agent._wm.heads["decoder"](imag_feat)["image"].mode()
-    for i in range(H):
-        save_image((recon_imgs[i].cpu().numpy()+0.5)*255, logger._logdir, agent._config.task + "/fake_imgs/{}.jpg".format(i+1))
-    print(recon_imgs.shape)
+        imag_feat, imag_state, imag_action = \
+            agent._task_behavior._imagine(start, tb.actor, H)
+        
+        print(imag_action)
+        # reward = tb._reward(imag_feat, imag_state, imag_action)
+        recon_imgs = agent._wm.heads["decoder"](imag_feat)["image"].mode()
+        for i in range(H):
+            save_image((recon_imgs[i].cpu().numpy()+0.5)*255, logger._logdir, agent._config.task + "/fake_imgs/{}.jpg".format(i+1))
+        print(recon_imgs.shape)
 
     # return recon_imgs, imag_action, reward
-
+    seq["image"] = np.stack(seq["image"], axis=0)
+    return seq
 
 
 

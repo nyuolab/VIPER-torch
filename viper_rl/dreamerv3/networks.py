@@ -794,7 +794,10 @@ class ConvDecoder(nn.Module):
         #     mean += 0.5
         return mean
 
-
+# density_head: 
+#     {layers: 5, units: 1024, act: "SiLU", 
+#     norm: True, dist: 'symlog_disc', loss_scale: 1.0, 
+#     outscale: 0.0, name: "Density"}
 class MLP(nn.Module):
     def __init__(
         self,

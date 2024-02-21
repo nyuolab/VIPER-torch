@@ -4,7 +4,7 @@ defaults:
   evaldir: null
   offline_traindir: ''
   offline_evaldir: ''
-  seed: 0
+  seed: 6
   deterministic_run: False
   steps: 1e8
   parallel: False
@@ -85,7 +85,7 @@ defaults:
   initial: 'learned'
 
   # Training
-  batch_size: 16 # 16
+  batch_size: 32 # 16
   batch_length: 100 #64
   train_ratio: 512
   pretrain: 100
@@ -129,8 +129,8 @@ defaults:
 
   # Exploration
   task_behavior: 'greedy'
-  expl_behavior: 'greedy'
-  # expl_behavior: 'plan2explore'
+  # expl_behavior: 'greedy'
+  expl_behavior: 'plan2explore'
   expl_until: 0
   expl_extr_scale: 1.0
   expl_intr_scale: 1.0
@@ -156,13 +156,12 @@ defaults:
   amp_window: 5
 
 videogpt_prior_rb:
-  task_behavior: prior
-  # expl_behavior: plan2explore
-  grad_heads: ['decoder', 'density', 'cont']
-  reward_model: 'dmc_clen16_fskip1'
-  prior_rewards: {extr: 0.0, density: 1.0, disag: 1.0}
-  wrapper.density: True
-  replay: uniform_relabel
+#   task_behavior: prior
+#   grad_heads: ['decoder', 'density', 'cont']
+#   reward_model: 'dmc_clen16_fskip1'
+#   prior_rewards: {extr: 0.0, density: 1.0, disag: 1.0}
+#   wrapper.density: True
+#   replay: uniform_relabel
 
   run:
     log_keys_max: '^log_.*'
@@ -222,7 +221,7 @@ crafter:
   envs: 1
   train_ratio: 512
   video_pred_log: false
-  expl_amount: 0.5
+  expl_amount: 0.4
   expl_decay_rate: 0.996
   expl_min: 0.05
   dyn_hidden: 1024

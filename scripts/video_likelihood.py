@@ -10,18 +10,26 @@ os.environ["MUJOCO_GL"] = "osmesa"
 import numpy as np
 import ruamel.yaml as yaml
 
+from gym.spaces import MultiDiscrete
+
 directory = pathlib.Path(__file__).resolve()
 directory = directory.parent
 sys.path.append(str(directory.parent))
 #sys.path.append(str(pathlib.Path(__file__).parent))
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 import torch
 from torch import nn
 from torch import distributions as torchd
 
 import viper_rl.dreamerv3.tools as tools
+from viper_rl.dreamerv3.parallel import Parallel, Damy
+
 from viper_rl.videogpt.reward_models import LOAD_REWARD_MODEL_DICT
 
+from scripts.train_dreamerv3 import make_env
 
 
 to_np = lambda x: x.detach().cpu().numpy()
@@ -61,28 +69,124 @@ def main(config):
     reward_model.gpt.model.position_bias_to_device()
     reward_model.gpt.init_ema_params()
 
+    # random traj
+    make = lambda mode: make_env(config, mode)
+    envs = [make("eval") for _ in range(config.envs)]
+
+    if config.envs > 1:
+        envs = [Parallel(env, "process") for env in eval_envs]
+    else:
+        envs = [Damy(env) for env in envs]
+        
+    acts = envs[0].action_space
+    if 'minecraft' not in config.task:
+        config.num_actions = acts.n if hasattr(acts, "n") else acts.shape[0]
+    else:
+        config.num_actions = list(acts.nvec)
+        config.action_dims = len(acts.nvec)
+        # print(config.num_actions)
+        # print(type(config.num_actions))
+        config.action_idxs = [0]
+        idx = 0
+        for action_dim in config.num_actions:
+            idx += action_dim
+            config.action_idxs.append(idx)
+        assert len(config.action_idxs) == len(config.num_actions)+1
+
+        config.action_weights = 1/acts.nvec.astype(float)
+    
+
+    if isinstance(acts, MultiDiscrete):
+        print("MineCraft MultiDiscrete")
+        
+        random_actor = tools.MultiOneHotDist(
+            [torch.zeros(num_actions).repeat(config.envs, 1) for num_actions in acts.nvec]
+        )
+        # action sample is fine
+        # print(random_actor.sample())
+
+    elif hasattr(acts, "discrete"):
+        # random_actor = tools.OneHotDist(
+        #     torch.zeros(config.video_len*config.num_actions).repeat(config.envs, 1)
+        # )
+        random_actor = tools.OneHotDist(
+            torch.zeros(config.num_actions).repeat(config.envs, 1)
+        )
+    else:
+        random_actor = torchd.independent.Independent(
+            torchd.uniform.Uniform(
+                torch.Tensor(acts.low).repeat(config.envs, 1),
+                torch.Tensor(acts.high).repeat(config.envs, 1),
+            ),
+            1,
+        )
+
+    class RandomAgent(object):
+        def __init__(self, config, reward_model=None): # video_encoder=None):
+            super(RandomAgent, self).__init__()
+            self.reward_model = reward_model
+            # self.video_encoder = video_encoder
+            self._config = config
+        
+        def __call__(self, o, d, state, training):
+            action = random_actor.sample()
+            logprob = random_actor.log_prob(action)
+            return {"action": action, "logprob": logprob}, None
+
+    traj_len = 501
+    is_first = np.zeros(traj_len)
+    is_first[0] = 1
+
+    random_agent = RandomAgent(config)
+
+    rand = tools.eval_rollout(random_agent, envs)
+    
+    rand["is_first"] = is_first
+    rand = reward_model(rand)
+    rand["density"] = np.array(rand["density"])
+
+    print("The random viper return is {}".format(sum(rand["density"])))
+    print("The random viper reward mean is {}".format(rand["density"].mean()))
+    print("The random viper reward std is {}".format(rand["density"].std()))
+
+    # expert traj
     env = "cheetah_run"
     # env = "cartpole_balance"
     path = "viper_rl_data/datasets/dmc/{}/test/*.npz".format(env)
     fns = glob.glob(path)
 
-    traj_len = 501
-    for video_path in fns:
-        video = np.load(video_path)['arr_0']
-        max_idx = video.shape[0] - traj_len + 1
-        max_idx = min(max_idx, traj_len)
-        np.random.seed(config.seed+video.shape[0])
-        idx = np.random.randint(0, max_idx)
-        video = video[idx:idx+traj_len]
-        print(video.shape)
-        is_first = np.zeros(traj_len)
-        is_first[0] = 1
-        data = dict(image=video, is_first=is_first)
-        data = reward_model(data)
-        data["density"] = np.array(data["density"])
-        print("The viper return is {}".format(sum(data["density"])))
-        print("The viper reward mean is {}".format(data["density"].mean()))
-        print("The viper reward std is {}".format(data["density"].std()))
+    # for video_path in fns:
+    video_path = fns[0]
+    video = np.load(video_path)['arr_0']
+    max_idx = video.shape[0] - traj_len + 1
+    max_idx = min(max_idx, traj_len)
+    np.random.seed(config.seed+video.shape[0])
+    idx = np.random.randint(0, max_idx)
+    video = video[idx:idx+traj_len]
+    print(video.shape)
+
+    expert = dict(image=video, is_first=is_first)
+    expert = reward_model(expert)
+    expert["density"] = np.array(expert["density"])
+
+    
+    print("The expert viper return is {}".format(sum(expert["density"])))
+    print("The expert viper reward mean is {}".format(expert["density"].mean()))
+    print("The expert viper reward std is {}".format(expert["density"].std()))
+
+    x = np.arange(traj_len)
+
+    plt.figure(figsize=(10, 6))  # Set the figure size for better visibility
+    plt.plot(x, rand["density"], color='red', label='random')  # Plot y1 vs. x with blue color
+    plt.plot(x, expert["density"], color='green', label='expert')  # Plot y2 vs. x with red color
+    plt.title('VIPER trajectory')  # Title of the plot
+    plt.xlabel('Trajectory Step')  # X-axis label
+    plt.ylabel('r VIPER')  # Y-axis label
+    plt.legend()  # Show legend to differentiate the two lines
+
+    plt.savefig("plots/viper_traj.png")
+
+
 
 
 if __name__ == "__main__":

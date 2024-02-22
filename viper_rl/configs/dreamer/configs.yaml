@@ -136,7 +136,7 @@ defaults:
   expl_intr_scale: 1.0
   disag_target: 'stoch'
   disag_log: True
-  disag_models: 10
+  disag_models: 5
   disag_offset: 1
   disag_layers: 5
   disag_units: 1024

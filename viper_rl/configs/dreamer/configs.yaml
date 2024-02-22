@@ -4,7 +4,7 @@ defaults:
   evaldir: null
   offline_traindir: ''
   offline_evaldir: ''
-  seed: 6
+  seed: 7
   deterministic_run: False
   steps: 1e8
   parallel: False
@@ -35,7 +35,7 @@ defaults:
   action_repeat: 2
   time_limit: 1000
   grayscale: False
-  prefill: 2500 # 10000
+  prefill: 0 # 2500 # 10000
   reward_EMA: True
   ae_ckpt: "viper_rl_data/checkpoints/dmc_vqgan"
   use_clip: False
@@ -116,7 +116,7 @@ defaults:
   actor_min_std: 0.1
   actor_max_std: 1.0
   actor_temp: 0.1
-  expl_amount: 0.5
+  expl_amount: 0.0
   expl_decay_rate: 0.995
   eval_noise: 0.0
   expl_min: 0.01
@@ -136,10 +136,10 @@ defaults:
   expl_intr_scale: 1.0
   disag_target: 'stoch'
   disag_log: True
-  disag_models: 5
+  disag_models: 10
   disag_offset: 1
-  disag_layers: 4
-  disag_units: 400
+  disag_layers: 5
+  disag_units: 1024
   disag_action_cond: False
 
   # Prior
@@ -184,7 +184,7 @@ dmc_proprio:
   decoder: {mlp_keys: '.*', cnn_keys: '$^'}
 
 dmc_vision:
-  steps: 1e6
+  steps: 1e8
   action_repeat: 2
   envs: 1
   train_ratio: 512

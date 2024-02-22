@@ -132,22 +132,26 @@ def main(config):
             action = random_actor.sample()
             logprob = random_actor.log_prob(action)
             return {"action": action, "logprob": logprob}, None
-
+    
+    seeds = 10
     traj_len = 501
+
+    random_density = np.zeros((seeds, traj_len))
     is_first = np.zeros(traj_len)
     is_first[0] = 1
 
     random_agent = RandomAgent(config)
 
-    rand = tools.eval_rollout(random_agent, envs)
-    
-    rand["is_first"] = is_first
-    rand = reward_model(rand)
-    rand["density"] = np.array(rand["density"])
+    for i in range(seeds):
+        rand = tools.eval_rollout(random_agent, envs)
+        
+        rand["is_first"] = is_first
+        rand = reward_model(rand)
+        random_density[i] = np.array(rand["density"])
 
-    print("The random viper return is {}".format(sum(rand["density"])))
-    print("The random viper reward mean is {}".format(rand["density"].mean()))
-    print("The random viper reward std is {}".format(rand["density"].std()))
+    # print("The random viper return is {}".format(sum(rand["density"])))
+    # print("The random viper reward mean is {}".format(rand["density"].mean()))
+    # print("The random viper reward std is {}".format(rand["density"].std()))
 
     # expert traj
     env = "cheetah_run"
@@ -155,30 +159,45 @@ def main(config):
     path = "viper_rl_data/datasets/dmc/{}/test/*.npz".format(env)
     fns = glob.glob(path)
 
+    expert_density = np.zeros((seeds, traj_len))
     # for video_path in fns:
-    video_path = fns[0]
-    video = np.load(video_path)['arr_0']
-    max_idx = video.shape[0] - traj_len + 1
-    max_idx = min(max_idx, traj_len)
-    np.random.seed(config.seed+video.shape[0])
-    idx = np.random.randint(0, max_idx)
-    video = video[idx:idx+traj_len]
-    print(video.shape)
+    for i in range(seeds):
+        video_path = fns[i]
+        video = np.load(video_path)['arr_0']
+        # max_idx = video.shape[0] - traj_len + 1
+        # max_idx = min(max_idx, traj_len)
+        # np.random.seed(config.seed+video.shape[0])
+        # idx = np.random.randint(0, max_idx)
+        video = video[:traj_len]
+        # print(video.shape)
 
-    expert = dict(image=video, is_first=is_first)
-    expert = reward_model(expert)
-    expert["density"] = np.array(expert["density"])
+        expert = dict(image=video, is_first=is_first)
+        expert = reward_model(expert)
+        expert_density[i] = np.array(expert["density"])
 
     
-    print("The expert viper return is {}".format(sum(expert["density"])))
-    print("The expert viper reward mean is {}".format(expert["density"].mean()))
-    print("The expert viper reward std is {}".format(expert["density"].std()))
+    # print("The expert viper return is {}".format(sum(expert["density"])))
+    # print("The expert viper reward mean is {}".format(expert["density"].mean()))
+    # print("The expert viper reward std is {}".format(expert["density"].std()))
 
     x = np.arange(traj_len)
 
+    rand_avs = np.mean(random_density, axis=0)
+    rand_maxs = np.max(random_density, axis=0)
+    rand_mins = np.min(random_density, axis=0)
+
+    expert_avs = np.mean(expert_density, axis=0)
+    expert_maxs = np.max(expert_density, axis=0)
+    expert_mins = np.min(expert_density, axis=0)
+
     plt.figure(figsize=(10, 6))  # Set the figure size for better visibility
-    plt.plot(x, rand["density"], color='red', label='random')  # Plot y1 vs. x with blue color
-    plt.plot(x, expert["density"], color='green', label='expert')  # Plot y2 vs. x with red color
+    
+    plt.fill_between(x, rand_mins, rand_maxs, color='red', alpha=0.35)
+    plt.plot(x, rand_avs, '-o', color='red', markersize=1, label="random")
+    
+    plt.fill_between(x, expert_mins, expert_maxs, color='green', alpha=0.35)
+    plt.plot(x, expert_avs, '-o', color='green', markersize=1, label='expert')  # Plot y2 vs. x with red color
+    
     plt.title('VIPER trajectory')  # Title of the plot
     plt.xlabel('Trajectory Step')  # X-axis label
     plt.ylabel('r VIPER')  # Y-axis label

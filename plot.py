@@ -26,10 +26,10 @@ if __name__ == "__main__":
 
     # methods = ["viper"]
     # seeds = ["0"]
-    methods = ["explore", "egreedy", "clip-explore", "clip-egreedy", "clip-egreedy+explore"]
+    methods = ["explore", "egreedy", "clip-explore", "viper", "clip-egreedy", "clip-egreedy+explore"]
     # methods = ["vanilla", "0.05-greedy", "0.5-0.05 decay"]
     # methods = ["inf_life", "inf_life_curiosity"]
-    seeds = ["0", "1", "2", "4", "5"]
+    seeds = ["0", "1", "2", "3", "4", "5"]
 
     rmin = 0
     rmax = 0

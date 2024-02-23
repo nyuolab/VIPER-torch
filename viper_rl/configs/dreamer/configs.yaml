@@ -4,7 +4,7 @@ defaults:
   evaldir: null
   offline_traindir: ''
   offline_evaldir: ''
-  seed: 7
+  seed: 0
   deterministic_run: False
   steps: 1e8
   parallel: False
@@ -35,7 +35,7 @@ defaults:
   action_repeat: 2
   time_limit: 1000
   grayscale: False
-  prefill: 0 # 2500 # 10000
+  prefill: 500 # 2500 # 10000
   reward_EMA: True
   ae_ckpt: "viper_rl_data/checkpoints/dmc_vqgan"
   use_clip: False
@@ -70,8 +70,8 @@ defaults:
     {layers: 2, units: 512, act: "SiLU", norm: True, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0., name: "Reward"}
   cont_head:
     {layers: 2, units: 512, act: "SiLU", norm: True, dist: "binary", loss_scale: 1.0, outscale: 1.0, name: "Cont"}
-  density_head: 
-    {layers: 5, units: 1024, act: "SiLU", norm: True, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0.0, name: "Density"}
+  density_head:
+    {layers: 2, units: 512, act: "SiLU", norm: True, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0.0, name: "Density"}
 
   dyn_scale: 0.5
   rep_scale: 0.1
@@ -85,8 +85,8 @@ defaults:
   initial: 'learned'
 
   # Training
-  batch_size: 32 # 16
-  batch_length: 100 #64
+  batch_size: 16 # 32
+  batch_length: 64 # 100
   train_ratio: 512
   pretrain: 100
   model_lr: 1e-4
@@ -136,7 +136,7 @@ defaults:
   expl_intr_scale: 1.0
   disag_target: 'stoch'
   disag_log: True
-  disag_models: 5
+  disag_models: 10
   disag_offset: 1
   disag_layers: 5
   disag_units: 1024
@@ -156,12 +156,12 @@ defaults:
   amp_window: 5
 
 videogpt_prior_rb:
-#   task_behavior: prior
-#   grad_heads: ['decoder', 'density', 'cont']
-#   reward_model: 'dmc_clen16_fskip1'
-#   prior_rewards: {extr: 0.0, density: 1.0, disag: 1.0}
-#   wrapper.density: True
-#   replay: uniform_relabel
+  task_behavior: prior
+  grad_heads: ['decoder', 'density', 'cont']
+  reward_model: 'dmc_clen16_fskip1'
+  prior_rewards: {extr: 0.0, density: 1.0, disag: 1.0}
+  wrapper.density: True
+  replay: uniform_relabel
 
   run:
     log_keys_max: '^log_.*'
@@ -183,7 +183,7 @@ dmc_proprio:
   encoder: {mlp_keys: '.*', cnn_keys: '$^'}
   decoder: {mlp_keys: '.*', cnn_keys: '$^'}
 
-dmc_vision:
+dmc_vision: 
   steps: 1e8
   action_repeat: 2
   envs: 1

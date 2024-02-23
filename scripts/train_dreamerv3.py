@@ -356,7 +356,7 @@ def main(config):
             logger,
             limit=config.dataset_size,
             steps=config.eval_every,
-            state=state, 
+            state=state,
             # train=True, 
         )
         # if config.ddp:

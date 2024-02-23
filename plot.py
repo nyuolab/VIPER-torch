@@ -17,19 +17,19 @@ if __name__ == "__main__":
     parser.add_argument("--mode", dest='mode', type=str,  default="eval")
     args = parser.parse_args()
     
-    # env = "dmc_cartpole_balance"
-    env = args.env
+    env = "dmc_cartpole_balance"
+    # env = args.env
     mode = args.mode
 
     return_mode = "{}_return".format(mode)
     plot_txt = 'plots/viper_{0}_rewards.png'.format(env)
 
-    # methods = ["viper"]
-    # seeds = ["0"]
-    methods = ["explore", "egreedy", "clip-explore", "viper", "clip-egreedy", "clip-egreedy+explore", "egreedy+explore"]
+    methods = ["viper"]
+    seeds = ["0"]
+    # methods = ["explore", "egreedy", "clip-explore", "viper", "clip-egreedy", "clip-egreedy+explore", "egreedy+explore"]
     # methods = ["vanilla", "0.05-greedy", "0.5-0.05 decay"]
     # methods = ["inf_life", "inf_life_curiosity"]
-    seeds = ["0", "1", "2", "3", "4", "5", "6"]
+    # seeds = ["0", "1", "2", "3", "4", "5", "6"]
 
     rmin = 0
     rmax = 0

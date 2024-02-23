@@ -149,13 +149,13 @@ def main(config):
         rand = reward_model(rand)
         random_density[i] = np.array(rand["density"])
 
-    # print("The random viper return is {}".format(sum(rand["density"])))
-    # print("The random viper reward mean is {}".format(rand["density"].mean()))
-    # print("The random viper reward std is {}".format(rand["density"].std()))
+        print("The random viper return is {}".format(sum(random_density[i])))
+        print("The random viper reward mean is {}".format(random_density[i].mean()))
+        print("The random viper reward std is {}".format(random_density[i].std()))
 
     # expert traj
-    env = "cheetah_run"
-    # env = "cartpole_balance"
+    # env = "cheetah_run"
+    env = config.task.split("_", 1)[-1]
     path = "viper_rl_data/datasets/dmc/{}/test/*.npz".format(env)
     fns = glob.glob(path)
 
@@ -176,9 +176,9 @@ def main(config):
         expert_density[i] = np.array(expert["density"])
 
     
-    # print("The expert viper return is {}".format(sum(expert["density"])))
-    # print("The expert viper reward mean is {}".format(expert["density"].mean()))
-    # print("The expert viper reward std is {}".format(expert["density"].std()))
+        print("The expert viper return is {}".format(sum(expert_density[i])))
+        print("The expert viper reward mean is {}".format(expert_density[i].mean()))
+        print("The expert viper reward std is {}".format(expert_density[i].std()))
 
     x = np.arange(traj_len)
 
@@ -203,7 +203,7 @@ def main(config):
     plt.ylabel('r VIPER')  # Y-axis label
     plt.legend()  # Show legend to differentiate the two lines
 
-    plt.savefig("plots/viper_traj.png")
+    plt.savefig("plots/viper_{}_traj.png".format(config.task))
 
 
 

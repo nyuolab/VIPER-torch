@@ -21,6 +21,8 @@ __pycache__/
 # HPC outputs
 *.out
 
+*.sh
+
 # Distribution / packaging
 .Python
 build/

@@ -24,12 +24,12 @@ if __name__ == "__main__":
     return_mode = "{}_return".format(mode)
     plot_txt = 'plots/viper_{0}_rewards.png'.format(env)
 
-    methods = ["viper"]
-    seeds = ["0"]
+    methods = ["viper_low_burn", "viper"]
+    seeds = ["0", "1"]
     # methods = ["explore", "egreedy", "clip-explore", "viper", "clip-egreedy", "clip-egreedy+explore", "egreedy+explore"]
+    # seeds = ["0", "1", "2", "3", "4", "5", "6"]
     # methods = ["vanilla", "0.05-greedy", "0.5-0.05 decay"]
     # methods = ["inf_life", "inf_life_curiosity"]
-    # seeds = ["0", "1", "2", "3", "4", "5", "6"]
 
     rmin = 0
     rmax = 0
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     # plt.yticks(np.arange(math.floor(rmin-1), math.ceil(rmax+1), 1.0))
     plt.xlabel('Step', fontsize = 15)
     plt.ylabel('Rewards', fontsize = 15)
-    plt.legend(loc='lower right', bbox_to_anchor=(0.5, 0., 0.5, 0.5))
+    plt.legend(loc='upper left', fontsize=6) # , bbox_to_anchor=(0.5, 0., 0.5, 0.5))
     plt.title("{0} {1} return curve".format(env, mode), fontsize = 20)
 
     plt.savefig(plot_txt)

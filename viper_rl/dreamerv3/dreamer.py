@@ -152,8 +152,10 @@ class Dreamer(nn.Module):
         feat = self._wm.dynamics.get_feat(latent)
         if not training:
             actor = self._task_behavior.actor(feat)
+            # actor = self._expl_behavior.actor(feat)
             action = actor.mode()
-        elif self._config.expl_behavior != "greedy" and self._should_expl(self._step):
+        elif self._config.expl_behavior != "greedy": # and self._should_expl(self._step):
+            # print("Act by explore")
             actor = self._expl_behavior.actor(feat)
             action = actor.sample()
         else:
@@ -228,6 +230,8 @@ class Dreamer(nn.Module):
         if self._config.expl_behavior not in ["greedy", "prior"]:
             mets = self._expl_behavior.train(start, context, data)[-1]
             metrics.update({"expl_" + key: value for key, value in mets.items()})
+        # else:
+        #     metrics.update(self._task_behavior._train(start, reward)[-1])
         for name, value in metrics.items():
             if not name in self._metrics.keys():
                 self._metrics[name] = [value]

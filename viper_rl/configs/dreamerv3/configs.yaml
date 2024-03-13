@@ -1,0 +1,317 @@
+defaults:
+  logdir: null
+  traindir: null
+  evaldir: null
+  offline_traindir: ''
+  offline_evaldir: ''
+  seed: 0
+  deterministic_run: False
+  steps: 1e8
+  parallel: False
+  eval_every: 1e4
+  eval_episode_num: 10
+  log_every: 1e4
+  reset_every: 0
+  device: 'cuda'
+  ddp: False
+  compile: True
+  precision: 32
+  debug: False
+  video_pred_log: True
+  replay: uniform
+  replay_size: 1e6
+  uniform_relabel_add_mode: chunk
+  curiosity: 'na'
+  method: clip_explore
+  # video_len: 5
+  # video_embed_dim: 1408
+
+  # Environment
+  task: 'dmc_walker_walk'
+  image_size: 64
+  size: [64, 64]
+  # size: [224, 224]
+  # size: [256, 256]
+  envs: 1
+  action_repeat: 2
+  time_limit: 1000
+  grayscale: False
+  prefill: 500 # 2500 # 10000
+  reward_EMA: True
+  use_clip: True
+  ae_ckpt: "viper_rl_data/checkpoints/dmc_vqgan"
+
+  # Model
+  dyn_hidden: 512
+  dyn_deter: 512
+  dyn_stoch: 32
+  dyn_discrete: 32
+  dyn_rec_depth: 1
+  dyn_mean_act: 'none'
+  dyn_std_act: 'sigmoid2'
+  dyn_min_std: 0.1
+  dyn_temp_post: True
+  grad_heads: ['decoder', 'reward', 'cont']
+  units: 512
+  act: 'SiLU'
+  norm: True
+  # rssm: 
+  #   {deter: 4096, units: 1024, stoch: 32, classes: 32, act: 'SiLU', norm: True, initial: learned, unimix_ratio: 0.01, unroll: False, action_clip: 1.0, winit: normal, fan: avg}
+  encoder:
+    {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 2, mlp_units: 512, symlog_inputs: True}
+  clip:
+    {layers: 1, units: 512, dist: 'normal', act: 'SiLU', norm: True, symlog_inputs: True}
+  decoder:
+    {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 2, mlp_units: 512, cnn_sigmoid: False, image_dist: mse, vector_dist: symlog_mse, outscale: 1.0}
+  actor:
+    {layers: 2, units: 512, dist: 'normal', entropy: 3e-4, unimix_ratio: 0.01, std: 'learned', min_std: 0.1, max_std: 1.0, temp: 0.1, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 1.0, absmax: 1.0, name: "Actor"}
+  critic:
+    {layers: 2, units: 512, dist: 'symlog_disc', slow_target: True, slow_target_update: 1, slow_target_fraction: 0.02, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 0.0}
+  reward_head:
+    {layers: 2, units: 512, act: "SiLU", norm: True, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0., name: "Reward"}
+  cont_head:
+    {layers: 2, units: 512, act: "SiLU", norm: True, dist: "binary", loss_scale: 1.0, outscale: 1.0, name: "Cont"}
+  density_head:
+    {layers: 2, units: 512, act: "SiLU", norm: True, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0.0, name: "Density"}
+
+  dyn_scale: 0.5
+  rep_scale: 0.1
+  kl_free: 1.0
+  cont_scale: 1.0
+  reward_scale: 1.0
+  density_scale: 1.0
+  weight_decay: 0.0
+  unimix_ratio: 0.01
+  action_unimix_ratio: 0.01
+  initial: 'learned'
+
+  # Training
+  batch_size: 16 # 32
+  batch_length: 64 # 100
+  train_ratio: 512
+  pretrain: 100
+  model_lr: 1e-4
+  opt_eps: 1e-8
+  grad_clip: 1000
+  value_lr: 3e-5
+  actor_lr: 3e-5
+  ac_opt_eps: 1e-5
+  value_grad_clip: 100
+  actor_grad_clip: 100
+  dataset_size: 1000000
+  slow_value_target: True
+  slow_target_update: 1
+  slow_target_fraction: 0.02
+  opt: 'adam'
+
+  # Behavior.
+  discount: 0.997
+  discount_lambda: 0.95
+  imag_horizon: 15
+  imag_gradient: 'dynamics'
+  imag_gradient_mix: 0.0
+  actor_dist: 'normal'
+  actor_entropy: 3e-4
+  actor_state_entropy: 0.0
+  actor_init_std: 1.0
+  actor_min_std: 0.1
+  actor_max_std: 1.0
+  actor_temp: 0.1
+  expl_amount: 0.0
+  expl_decay_rate: 0.995
+  eval_noise: 0.0
+  expl_min: 0.01
+  eval_state_mean: False
+  value_decay: 0.0
+  class_cond: True
+  seq_len: 16
+  frame_skip: 1
+  # lr: 1.e-4
+
+  # Exploration
+  task_behavior: 'greedy'
+  # expl_behavior: 'greedy'
+  expl_behavior: 'plan2explore'
+  expl_until: 0
+  expl_extr_scale: 1.0
+  expl_intr_scale: 1.0
+  disag_target: 'stoch'
+  disag_log: True
+  disag_models: 10
+  disag_offset: 1
+  disag_layers: 2 # 4
+  disag_units: 512 # 400
+  disag_action_cond: False
+
+  # Prior
+  prior_rewards: {extr: 1.0, density: 1.0, disag: 0.0}
+  reward_model: 'dmc_clen16_fskip1'
+  reward_model_batch_size: 64
+  reward_model_compute_joint: True
+
+  # AMP
+  amp_rewards: {extr: 1.0, disag: 0.0}
+  reference_dir: /dev/null
+  discriminator: {cnn_keys: 'image', act: 'SiLU', norm: 'LayerNorm', mlp_layers: 5, mlp_units: 1024, cnn: resnet, cnn_depth: 96, symlog_inputs: True, minres: 4} # cnn_blocks: 0, resize: stride, winit: normal, fan: avg
+  discriminator_head: {layers: 5, units: 1024, act: 'SiLU', norm: 'LayerNorm', dist: 'symlog_disc', outscale: 0.0} #, winit: normal, fan: avg, bins: 255}
+  amp_window: 5
+
+videogpt_prior_rb:
+  # task_behavior: prior
+  # grad_heads: ['decoder', 'density', 'cont']
+  # reward_model: 'dmc_clen16_fskip1'
+  # prior_rewards: {extr: 0.0, density: 1.0, disag: 1.0}
+  # wrapper.density: True
+  # replay: uniform_relabel
+
+  run:
+    log_keys_max: '^log_.*'
+    log_keys_mean: '^log_.*'
+    log_keys_sum: '^log_.*'
+
+motion_prior:
+  run:
+    script: train_amp
+  task_behavior: MotionPrior
+  grad_heads: [decoder, cont, discriminator_reward]
+
+dmc_proprio:
+  steps: 5e5
+  action_repeat: 2
+  envs: 4
+  train_ratio: 512
+  video_pred_log: false
+  encoder: {mlp_keys: '.*', cnn_keys: '$^'}
+  decoder: {mlp_keys: '.*', cnn_keys: '$^'}
+
+dmc_vision: 
+  steps: 1e8
+  action_repeat: 2
+  envs: 1
+  train_ratio: 512
+  video_pred_log: true
+  encoder: {mlp_keys: '$^', cnn_keys: 'image'}
+  decoder: {mlp_keys: '$^', cnn_keys: 'image'}
+  ae:
+    image_size: 64
+    ch: 128
+    ch_mult: [1, 2, 2, 2]
+    num_res_blocks: 1
+    attn_resolutions: []
+    z_channels: 64
+    double_z: false
+    dropout: 0.
+    n_embed: 256
+    embed_dim: 64
+    patch_size: [8, 8]
+    ddp: False
+  transformer:
+    # image_size: 64
+    embed_dim: 256
+    num_heads: 8
+    num_layers: 8
+    mlp_dim: 1024
+    dropout: 0.1
+    attention_dropout: 0.1
+    attn_type: 'full' # 'sparse'
+
+crafter:
+  task: crafter_reward
+  step: 1e7
+  action_repeat: 1
+  envs: 1
+  train_ratio: 512
+  video_pred_log: false
+  expl_amount: 0.05
+  expl_decay_rate: 0.996
+  expl_min: 0.05
+  dyn_hidden: 1024
+  dyn_deter: 4096
+  units: 1024
+  reward_layers: 5
+  cont_layers: 5
+  value_layers: 5
+  actor_layers: 5
+  encoder: {mlp_keys: 'video', cnn_keys: 'image', cnn_depth: 96, mlp_layers: 5, mlp_units: 2048} # 1024
+  decoder: {mlp_keys: 'video', cnn_keys: 'image', cnn_depth: 96, mlp_layers: 5, mlp_units: 2048} # 1024
+  actor_dist: 'onehot'
+  imag_gradient: 'reinforce'
+
+atari100k:
+  steps: 4e5
+  envs: 1
+  action_repeat: 4
+  train_ratio: 1024
+  video_pred_log: true
+  eval_episode_num: 100
+  actor_dist: 'onehot'
+  imag_gradient: 'reinforce'
+  stickey: False
+  lives: unused
+  noops: 30
+  resize: opencv
+  actions: needed
+  time_limit: 108000
+
+minecraft:
+  task: minecraft_diamond
+  step: 1e8
+  envs: 1
+  # no eval
+  eval_episode_num: 0
+  eval_every: 1e4
+  action_repeat: 1
+  imag_horizon: 20
+  train_ratio: 16
+  video_pred_log: false # true
+  expl_amount: 0.2
+  expl_decay_rate: 0.9997
+  expl_min: 0.05
+  # dyn_stoch: 64
+  dyn_hidden: 1024
+  dyn_deter: 4096
+  units: 1024
+  reward_layers: 5
+  cont_layers: 5
+  value_layers: 5
+  actor_layers: 5
+  # inventory|inventory_max|equipped|block_meta|block_collidable|block_tool|block_movement|block_liquid|block_solid|block_burn|block_light|look_angle|health|hunger|breath|armor|yaw|pitch|rain|temperature|light|sky_light|sun|sea|damage_amount|damage_dist|damage_yaw|damage_hunger|is_explosive|is_fire|is_projectile|is_unblockable|reward
+  
+  encoder: {cnn_keys: 'image', cnn_depth: 96}
+  # encoder: {mlp_keys: 'inventory|inventory_max|equipped|look_angle|block_meta|health|hunger|breath|armor|xp|yaw|pitch|rain|temperature|light|reward', cnn_keys: 'image', cnn_depth: 96, mlp_layers: 5, mlp_units: 1024}
+  decoder: {mlp_keys: 'inventory|inventory_max|equipped|look_angle|block_meta|health|hunger|breath|armor|xp|yaw|pitch|rain|temperature|light', cnn_keys: 'image', cnn_depth: 96, mlp_layers: 5, mlp_units: 1024}
+  actor:
+    {layers: 5, units: 1024, dist: 'symlog_disc', entropy: 3e-4, unimix_ratio: 0.01, std: 'learned', min_std: 0.1, max_std: 1.0, temp: 0.1, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 1.0, absmax: 1.0, name: "Actor"}
+  critic:
+    {layers: 5, units: 1024, dist: 'symlog_disc', slow_target: True, slow_target_update: 1, slow_target_fraction: 0.02, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 0.0}
+  reward_head:
+    {layers: 5, units: 1024, act: "SiLU", norm: True, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0., name: "Reward"}
+  cont_head:
+    {layers: 5, units: 1024, act: "SiLU", norm: True, dist: "binary", loss_scale: 1.0, outscale: 1.0, name: "Cont"}
+  density_head: 
+    {layers: 5, units: 1024, act: "SiLU", norm: True, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0.0, name: "Density"}
+  
+  actor_dist: 'multionehot'
+  imag_gradient: 'reinforce'
+  break_speed: 100.0
+  time_limit: 36000
+
+
+memorymaze:
+  steps: 1e8
+  action_repeat: 2
+  actor_dist: 'onehot'
+  imag_gradient: 'reinforce'
+  task: 'memorymaze_15x15'
+
+debug:
+  debug: True
+  pretrain: 1
+  prefill: 1
+  batch_size: 10
+  batch_length: 20
+
+
+
+
+

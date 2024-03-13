@@ -198,7 +198,7 @@ def main(config):
     plt.fill_between(x, expert_mins, expert_maxs, color='green', alpha=0.35)
     plt.plot(x, expert_avs, '-o', color='green', markersize=1, label='expert')  # Plot y2 vs. x with red color
     
-    plt.title('VIPER trajectory')  # Title of the plot
+    plt.title('VIPER {} trajectory'.format(config.task))  # Title of the plot
     plt.xlabel('Trajectory Step')  # X-axis label
     plt.ylabel('r VIPER')  # Y-axis label
     plt.legend()  # Show legend to differentiate the two lines

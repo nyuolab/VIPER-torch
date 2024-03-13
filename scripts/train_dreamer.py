@@ -22,13 +22,10 @@ directory = directory.parent
 sys.path.append(str(directory.parent))
 #sys.path.append(str(pathlib.Path(__file__).parent))
 
-from viper_rl.dreamerv3 import embodied
-from viper_rl.dreamerv3.embodied import wrappers
-import viper_rl.dreamerv3.tools as tools
-# import viper_rl.dreamerv3.envs.wrappers as wrappers
-from viper_rl.dreamerv3.dreamer import Dreamer
-# from viper_rl.dreamerv3.parallel import Parallel, Damy
-from viper_rl.dreamerv3 import agent as agt
+from viper_rl.dreamer import embodied
+from viper_rl.dreamer.embodied import wrappers
+import viper_rl.dreamer.tools as tools
+from viper_rl.dreamer import agent as agt
 
 
 import torch

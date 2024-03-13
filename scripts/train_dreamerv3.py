@@ -123,7 +123,7 @@ def main(config):
     tools.set_seed_everywhere(config.seed)
     if config.deterministic_run:
         tools.enable_deterministic_run()
-    config.logdir += '/{0}{1}'.format(config.task, config.seed)
+    config.logdir += '/{0}/{1}{2}'.format(config.task, config.method, config.seed)
     logdir = pathlib.Path(config.logdir).expanduser()
     config.traindir = config.traindir or logdir / "train_eps"
     config.evaldir = config.evaldir or logdir / "eval_eps"
@@ -384,7 +384,7 @@ if __name__ == "__main__":
     args, remaining = parser.parse_known_args()
     
     configs = yaml.safe_load(
-        (pathlib.Path(sys.argv[0]).parent.parent / "viper_rl/configs/dreamer/configs.yaml").read_text()
+        (pathlib.Path(sys.argv[0]).parent.parent / "viper_rl/configs/dreamerv3/configs.yaml").read_text()
     )
 
     def recursive_update(base, update):

@@ -26,6 +26,8 @@ from viper_rl.dreamer import embodied
 from viper_rl.dreamer.embodied import wrappers
 import viper_rl.dreamer.tools as tools
 from viper_rl.dreamer import agent as agt
+from viper_rl import CONFIG_PATH
+
 
 
 import torch
@@ -56,20 +58,17 @@ class dict2obj:
             setattr(self, key, value)
 
 
-def main(config):
+def main(argv=None):
     # is_master_process = dist.get_rank() == 0
 
-    tools.set_seed_everywhere(config.seed)
-    if config.deterministic_run:
-        tools.enable_deterministic_run()
-
     parsed, other = embodied.Flags(configs=['defaults']).parse_known(argv)
-    config = yaml.YAML(typ="safe").load(
-        # (pathlib.Path(sys.argv[0]).parent.parent / "viper_rl/configs/dreamer/configs.yaml").read_text()
-        open("viper_rl/configs/dreamer/configs.yaml", "rb").read()
-    )
+    
+    config = embodied.Config(agt.Agent.configs['defaults'])
+
     for name in parsed.configs:
-        config = config.update(config)
+        config = config.update(agt.Agent.configs[name])
+    
+    config = embodied.Flags(config).parse(other)
     
     config.logdir += '/{0}{1}'.format(config.task, config.seed)
     # logdir = pathlib.Path(config.logdir).expanduser()
@@ -80,10 +79,11 @@ def main(config):
     # config.log_every //= config.action_repeat
     # config.time_limit //= config.action_repeat
 
-    config = embodied.Flags(config).parse(other)
+    
     args = embodied.Config(
         **config.run, logdir=config.logdir,
         batch_steps=config.batch_size * config.batch_length)
+    
     print(config)
 
     logdir = embodied.Path(args.logdir)
@@ -92,7 +92,9 @@ def main(config):
     step = embodied.Counter()
     logger = make_logger(parsed, logdir, step, config)
 
-
+    tools.set_seed_everywhere(config.seed)
+    if config.deterministic_run:
+        tools.enable_deterministic_run()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     config.device = device
@@ -214,8 +216,8 @@ def make_logger(parsed, logdir, step, config):
         embodied.logger.JSONLOutput(logdir, 'metrics.jsonl'),
         embodied.logger.JSONLOutput(logdir, 'scores.jsonl', 'episode/score'),
         embodied.logger.TensorBoardOutput(logdir),
-        # embodied.logger.WandBOutput(logdir.name, config),
-        # embodied.logger.MLFlowOutput(logdir.name),
+        embodied.logger.WandBOutput(logdir.name, config),
+        embodied.logger.MLFlowOutput(logdir.name),
     ], multiplier)
     return logger
 
@@ -316,7 +318,7 @@ def wrap_env(env, config):
         env = wrappers.CheckSpaces(env)
     for name, space in env.act_space.items():
         if not space.discrete:
-        env = wrappers.ClipAction(env, name)
+            env = wrappers.ClipAction(env, name)
     return env
 
 

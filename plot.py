@@ -26,6 +26,8 @@ if __name__ == "__main__":
 
     methods = ["0.01-greedy", "egreedy_decay", "explore", "clip", "clip_egreedy_decay", "clip_explore"]
     seeds = ["0", "1", "3", "2", "4", "0"]
+    # methods = ["viper", "viper", "viper"]
+    # seeds = ["0", "2", "3"]
 
     rmin = 0
     rmax = 0

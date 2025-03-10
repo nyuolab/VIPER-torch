@@ -35,7 +35,7 @@ class VQPerceptualWithDiscriminator:
 
     def loss_recon(self, batch):
         # In PyTorch, randomness is handled by the framework, especially for dropout
-        out = self.vqgan(batch['image'])
+        out = self.vqgan(batch['image'], decode=True)
         # print(batch['image'].shape)
         # print(out['recon'].shape)
         rec_loss = torch.abs(batch['image'] - out['recon'])
@@ -68,7 +68,7 @@ class VQPerceptualWithDiscriminator:
 
 
     def loss_D(self, batch):
-        out = self.vqgan(batch['image'])
+        out = self.vqgan(batch['image'], decode=True)
         d_out = self.disc.loss_D(batch['image'], out['recon'])
 
         return d_out['loss_D'], d_out

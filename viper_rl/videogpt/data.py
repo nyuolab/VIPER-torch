@@ -1,7 +1,7 @@
 import os
 import os.path as osp
 import glob
-from google.cloud import storage
+# from google.cloud import storage
 import io
 import cv2
 import math

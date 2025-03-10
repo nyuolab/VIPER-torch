@@ -13,7 +13,7 @@ import pickle
 import wandb
 import random
 import datetime
-
+from omegaconf import OmegaConf
 
 import torch
 import torch.distributed as dist
@@ -33,7 +33,7 @@ from viper_rl.videogpt.data import load_dataset, prepare
 from viper_rl.videogpt.train_utils import init_model_state_vqgan, ProgressMeter, save_image_grid, get_first_device, print_model_size
 from viper_rl.videogpt import weight_init
 
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def extract_iteration(filename):
     match = re.search(r"checkpoint_(\d+).pth", filename)
     return int(match.group(1)) if match else 0
@@ -84,8 +84,8 @@ def main():
     print_model_size(model.disc, name='disc')
 
 
-    config.device = device
-    config.ae['device'] = device
+    # config.device = device
+    # config.ae['device'] = device
 
     train_dataset, _, mask_map = load_dataset(config, train=True, modality='image')
     test_dataset, _, _ = load_dataset(config, train=False, modality='image')
@@ -180,9 +180,11 @@ def train(iteration, state, train_loader, test_loader, config):
 
         # Visualization
         if iteration % config.viz_interval == 0:
-            visualize(iteration, state, test_loader, config.device)
+            # visualize(iteration, state, test_loader, config.device)
+            visualize(iteration, state, test_loader, device)
 
-        state, metrics = train_step(batch, state, config.device)
+        # state, metrics = train_step(batch, state, config.device)
+        state, metrics = train_step(batch, state, device)
 
         state.G_scheduler.step(iteration)
         state.D_scheduler.step(iteration)
@@ -265,9 +267,13 @@ def visualize(iteration, state, test_loader, device):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-o', '--output_dir', type=str, required=True)
-    parser.add_argument('-c', '--config', type=str, required=True)
+    # parser.add_argument('-o', '--output_dir', type=str, required=True)
+    # parser.add_argument('-c', '--config', type=str, required=True)
     args = parser.parse_args()
+
+
+    args.output_dir='/home/skr/VIPER-torch/viper_rl_data/checkpoints/dmc_vqgan'
+    args.config='/home/skr/viper_rl/viper_rl/configs/vqgan/dmc.yaml'
 
     args.run_id = args.output_dir.split('/')[-1] + datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
@@ -278,8 +284,9 @@ if __name__ == '__main__':
         print(f'Current CUDA device name: {torch.cuda.get_device_name(torch.cuda.current_device())}')
     else:
         print('CUDA is not available. Using CPU only.')
-
-    config = yaml.safe_load(open(args.config, 'r'))
+    # config = OmegaConf.load(open(args.config, 'r'))
+    config = OmegaConf.load('/home/skr/VIPER-torch/viper_rl/configs/vqgan/dmc.yaml')
+    # config = yaml.safe_load(open(args.config, 'r'))
     if os.environ.get('DEBUG') == '1':
         config['save_interval'] = 10
         config['viz_interval'] = 10
